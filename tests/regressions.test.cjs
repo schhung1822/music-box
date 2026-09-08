@@ -234,7 +234,7 @@ function sceneAt(currentTime, extra = {}) {
     settings: { visualMode: "disc", showLyrics: true, showProgress: false, showControls: false, clipDuration: 30, ...extra.settings },
   };
 }
-const lyricDraws = ctx => ctx.calls.filter(call => call.name === "fillText" && (call.font.startsWith("600") || call.font.startsWith("750")));
+const lyricDraws = ctx => ctx.calls.filter(call => call.name === "fillText" && !["Tên bài", "Nghệ sĩ"].includes(call.text) && !/^(\d+:\d\d|--:--)$/.test(call.text));
 
 test("Recorded lyrics break between words, never in the middle of one", () => {
   const env = browserFakes();
@@ -325,5 +325,127 @@ test("The recorded frame can carry a player-style control bar", () => {
     const unknown = fakeContext({ width, height });
     renderScene(unknown, sceneAt(5, { duration: Infinity, settings: { aspectRatio: "9:16", showControls: true }, reducedMotion: true }));
     assert.deepEqual(clock(unknown), ["0:05", "--:--"]);
+  } finally { env.restore(); }
+});
+
+test("4:3 recording uses tighter margins and keeps the composition when resolution increases", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene, getSceneArtSize } = loadSource("utils/renderScene.ts");
+    const video = new FakeVideo();
+    const scene = sceneAt(5, { video, settings: { aspectRatio: "4:3", visualMode: "video" } });
+    const normal = fakeContext({ width: 1440, height: 1080 });
+    const detailed = fakeContext({ width: 2880, height: 2160 });
+    renderScene(normal, scene);
+    renderScene(detailed, scene);
+    const art = normal.calls.find(call => call.name === "drawImage").args;
+    assert.ok(art[5] < 110, "outer border is smaller than the previous 150px gap");
+    assert.ok(art[7] > 480, "artwork fills more of the 4:3 frame");
+    assert.equal(art[7], getSceneArtSize(scene.settings));
+    assert.deepEqual(detailed.calls.find(call => call.name === "drawImage").args, art);
+    assert.deepEqual(detailed.calls.find(call => call.name === "scale").args, [2, 2]);
+  } finally { env.restore(); }
+});
+
+test("Recorded lyric layout stays continuous when neighbours enter and rapid cues interrupt", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const lyrics = Array.from({ length: 10 }, (_, i) => ({ id: String(i), time: i === 4 ? 30.2 : i * 10, text: `Line ${i}` }));
+    const at = time => {
+      const ctx = fakeContext({ width: 1440, height: 1080 });
+      renderScene(ctx, sceneAt(time, { lyrics, settings: { aspectRatio: "4:3" } }));
+      return lyricDraws(ctx);
+    };
+    for (const time of [20, 20.42, 30, 30.2, 30.62]) {
+      const before = at(time - .000001);
+      const after = at(time);
+      const shared = before.filter(call => after.some(next => next.text === call.text));
+      assert.ok(shared.length >= 2);
+      for (const line of shared) {
+        const next = after.find(call => call.text === line.text);
+        assert.ok(Math.abs(line.y - next.y) < .02, `line jumped at ${time}: ${line.text}`);
+        const alpha = call => Number(call.fill.match(/([\d.]+)\)$/)[1]);
+        assert.ok(Math.abs(alpha(line) - alpha(next)) < .002, `opacity jumped at ${time}`);
+      }
+    }
+  } finally { env.restore(); }
+});
+
+test("Both recording ratios animate while media timestamps are unchanged", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const lyrics = ["First", "Second", "Third"].map((text, i) => ({ id: String(i), time: i * 10, text }));
+    for (const ratio of ["4:3", "9:16"]) {
+      const ctx = fakeContext(ratio === "4:3" ? { width: 1440, height: 1080 } : { width: 1080, height: 1920 });
+      const draw = (currentTime, animationTime, reducedMotion = false) => {
+        ctx.calls.length = 0;
+        renderScene(ctx, sceneAt(currentTime, { lyrics, animationTime, reducedMotion, settings: { aspectRatio: ratio } }));
+        return lyricDraws(ctx);
+      };
+      draw(9.9, 0);
+      draw(10, 16);
+      const early = draw(10, 70).find(call => call.text === "Second");
+      const later = draw(10, 180).find(call => call.text === "Second");
+      assert.ok(early && later);
+      assert.ok(early.y > later.y, `${ratio} moves with the animation clock`);
+      assert.notEqual(early.fill, later.fill);
+      const calm = draw(10, 190, true).find(call => call.text === "Second");
+      assert.equal(calm.fill, "rgba(255, 255, 255, 1)");
+    }
+  } finally { env.restore(); }
+});
+
+test("Lyric wrapping is cached and does not reflow as emphasis changes", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const ctx = fakeContext({ width: 1440, height: 1080 });
+    let measurements = 0;
+    ctx.measureText = text => {
+      measurements++;
+      return { width: text.length * (Number(ctx.font.split(" ")[0]) >= 700 ? 24 : 20) };
+    };
+    const lyrics = ["A long lyric with several words to wrap", "Another long lyric with several words to wrap"]
+      .map((text, i) => ({ id: String(i), time: i * 10, text }));
+    const scene = sceneAt(9.9, { lyrics, settings: { aspectRatio: "4:3" } });
+    renderScene(ctx, scene);
+    const before = lyricDraws(ctx).map(call => call.text);
+    const initialMeasurements = measurements;
+    ctx.calls.length = 0;
+    renderScene(ctx, { ...scene, currentTime: 10.15 });
+    assert.equal(measurements, initialMeasurements, "each frame reuses measured lines");
+    assert.deepEqual(lyricDraws(ctx).map(call => call.text), before, "highlighting keeps the same word breaks");
+    assert.ok(ctx.calls.some(call => call.name === "roundRect" && call.args[4] === 0), "lyric viewport is clipped");
+  } finally { env.restore(); }
+});
+
+test("Portrait crossfades keep actual cue identities across unsorted timestamps and interrupted seeks", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const lyrics = [
+      { id: "a", time: 0, text: "First" },
+      { id: "b", time: 30, text: "Unrelated" },
+      { id: "c", time: 10, text: "Second" },
+      { id: "d", time: 10.2, text: "Third" },
+    ];
+    const ctx = fakeContext({ width: 1080, height: 1920 });
+    const draw = (time, clock) => {
+      ctx.calls.length = 0;
+      renderScene(ctx, sceneAt(time, { lyrics, animationTime: clock, settings: { aspectRatio: "9:16" } }));
+      return lyricDraws(ctx);
+    };
+    assert.deepEqual(draw(10.1).map(call => call.text), ["First", "Second"]);
+    assert.deepEqual(draw(10.25).map(call => call.text), ["First", "Second", "Third"]);
+    draw(9.9, 0);
+    draw(10, 10);
+    const before = draw(10, 110);
+    const interrupted = draw(10.2, 110);
+    assert.deepEqual(interrupted, before, "interruption starts from the visible state");
+    const later = draw(10.2, 210);
+    assert.deepEqual(later.map(call => call.text), ["First", "Second", "Third"]);
+    assert.ok(later.every(call => call.text !== "Unrelated"));
   } finally { env.restore(); }
 });

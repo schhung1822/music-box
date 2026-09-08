@@ -71,6 +71,101 @@ function recordingOptions(element, extra = {}) {
   return {element,title:"Song",artist:"Artist",lyrics:[{id:"1",time:0,text:"Line"}],manualLyricIndex:0,settings:{visualMode:"disc",showLyrics:true,showProgress:true,aspectRatio:"9:16",clipDuration:15},video:null,cover:null,play:async()=>{await element.play();return true;},pause:()=>element.pause(),...extra};
 }
 
+test("Recording resolution preserves the visible 1080p crop, keeps exact ratios and bounds very large sources", () => {
+  const { getRecordingQuality } = loadSource("utils/recordingQuality.ts");
+  const { getSceneArtSize } = loadSource("utils/renderScene.ts");
+  const { outputDimensions } = loadSource("types/studio.ts");
+  for (const aspectRatio of ["4:3", "9:16"]) {
+    for (const showLyrics of [true, false]) {
+      const settings = { ...recordingOptions(new FakeMedia()).settings, visualMode: "video", aspectRatio, showLyrics };
+      const base = getRecordingQuality(settings, null);
+      assert.deepEqual([base.width, base.height], outputDimensions[aspectRatio]);
+      const hd = getRecordingQuality(settings, { videoWidth: 1920, videoHeight: 1080 });
+      const visiblePixels = getSceneArtSize(settings) * hd.width / outputDimensions[aspectRatio][0];
+      assert.ok(visiblePixels >= 1080, `${aspectRatio}: preserve the uploaded crop's 1080 rows`);
+      const large = getRecordingQuality(settings, { videoWidth: 7680, videoHeight: 4320 });
+      assert.equal(Math.max(large.width, large.height), 3840);
+      assert.equal(large.width / large.height, outputDimensions[aspectRatio][0] / outputDimensions[aspectRatio][1]);
+      assert.equal(large.width % 2, 0); assert.equal(large.height % 2, 0);
+      assert.ok(large.videoBitsPerSecond > base.videoBitsPerSecond);
+      assert.ok(large.videoBitsPerSecond <= 100_000_000);
+      const small = getRecordingQuality(settings, { videoWidth: 640, videoHeight: 360 });
+      assert.deepEqual(small, base);
+      const disc = getRecordingQuality({ ...settings, visualMode: "disc" }, { videoWidth: 7680, videoHeight: 4320 });
+      assert.deepEqual(disc, base);
+    }
+  }
+});
+
+test("Recording cadence stays near 60 fps across display refresh rates and recovers from stalls", () => {
+  const { createFramePacer } = loadSource("utils/recordingQuality.ts");
+  for (const refreshRate of [59.94, 60, 120, 144]) {
+    const due = createFramePacer(0);
+    let count = 0;
+    for (let i = 1; i <= Math.floor(refreshRate * 10); i++) {
+      if (due(i * 1000 / refreshRate)) count++;
+    }
+    assert.ok(count >= 598 && count <= 600, `${refreshRate} Hz produced ${count} frames in 10s`);
+  }
+  const due = createFramePacer(0);
+  assert.equal(due(16.5), true);
+  assert.equal(due(20), false);
+  assert.equal(due(500), true);
+  assert.equal(due(501), false);
+  assert.equal(due(516.67), true);
+});
+
+test("Recorder draws on successive 60 Hz frames and requests native-sized high-quality video", async () => {
+  const env = browserFakes();
+  const harness = hookHarness();
+  try {
+    const { useRecorder } = loadSource("hooks/useRecorder.ts", harness.react);
+    const recorder = harness.start(() => useRecorder()); harness.flush();
+    const element = new FakeVideo();
+    await recorder.start(recordingOptions(element, { video: element, settings: { ...recordingOptions(element).settings, visualMode: "video", aspectRatio: "4:3" } }));
+    const canvas = env.canvases[0];
+    assert.ok(canvas.width > 1440); assert.ok(canvas.height > 1080);
+    assert.equal(canvas.rate, 60);
+    assert.equal(canvas.context.imageSmoothingEnabled, true);
+    assert.equal(canvas.context.imageSmoothingQuality, "high");
+    const first = performance.now() + 20;
+    const drawCount = () => canvas.context.calls.filter(call => call.name === "drawImage" && call.args[0] === element).length;
+    let previous = drawCount();
+    for (let i = 0; i < 60; i++) {
+      element.currentTime = i / 60;
+      env.advance(first + i * 1000 / 60);
+      const current = drawCount();
+      assert.equal(current, previous + 1, `draw on frame ${i}`);
+      previous = current;
+    }
+    recorder.stop(); await Promise.resolve();
+    const result = harness.render().result;
+    assert.equal(result.width, canvas.width); assert.equal(result.height, canvas.height);
+  } finally { harness.unmount(); env.restore(); }
+});
+
+test("Audio with a loading background video waits for native video dimensions before recording", async () => {
+  const env = browserFakes();
+  const harness = hookHarness();
+  try {
+    const { useRecorder } = loadSource("hooks/useRecorder.ts", harness.react);
+    const recorder = harness.start(() => useRecorder()); harness.flush();
+    const audio = new FakeMedia();
+    const video = new FakeVideo();
+    video.readyState = 0; video.videoWidth = 0; video.videoHeight = 0;
+    const preparing = recorder.start(recordingOptions(audio, { video, settings: { ...recordingOptions(audio).settings, visualMode: "video", aspectRatio: "4:3" } }));
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    assert.equal(harness.render().status, "preparing");
+    assert.equal(env.canvases.length, 0);
+    video.videoWidth = 1920; video.videoHeight = 1080; video.readyState = 2;
+    video.dispatchEvent(new Event("loadeddata"));
+    await preparing;
+    assert.equal(harness.render().status, "recording");
+    assert.ok(env.canvases[0].width > 1440);
+    recorder.stop(); await Promise.resolve();
+  } finally { harness.unmount(); env.restore(); }
+});
+
 test("Recorder combines canvas and audio, stops tracks, reuses audio source across recordings and revokes downloads", async () => {
   const env = browserFakes();
   const harness = hookHarness();
@@ -82,11 +177,13 @@ test("Recorder combines canvas and audio, stops tracks, reuses audio source acro
     await recorder.start(recordingOptions(element,{onComplete:()=>completed++}));
     recorder = harness.render();
     assert.equal(recorder.status,"recording");
-    assert.equal(env.canvases[0].width,1080); assert.equal(env.canvases[0].height,1920); assert.equal(env.canvases[0].rate,30);
+    assert.equal(env.canvases[0].width,1080); assert.equal(env.canvases[0].height,1920); assert.equal(env.canvases[0].rate,60);
+    assert.ok(env.recordings[0].options.videoBitsPerSecond >= 24_000_000);
+    assert.equal(env.recordings[0].options.audioBitsPerSecond,320_000);
     assert.equal(env.recordings[0].stream.getVideoTracks().length,1);
     assert.equal(env.recordings[0].stream.getAudioTracks().length,1);
     recorder.stop(); await Promise.resolve(); recorder = harness.render();
-    assert.equal(recorder.status,"idle"); assert.ok(recorder.result.url);
+    assert.equal(recorder.status,"idle"); assert.ok(recorder.result.url); assert.equal(recorder.result.frameRate,60);
     assert.equal(completed,1); assert.equal(element.paused,true);
     assert.ok(env.recordings[0].stream.getTracks().every(track=>track.stopped));
     const previousUrl = recorder.result.url;

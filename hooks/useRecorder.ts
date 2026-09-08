@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { outputDimensions } from "../types/studio";
 import { renderScene, type Scene } from "../utils/renderScene";
+import { createFramePacer, getRecordingQuality } from "../utils/recordingQuality";
 
 type StartOptions = Omit<Scene, "currentTime" | "duration" | "reducedMotion"> & {
   element: HTMLMediaElement;
@@ -16,13 +16,34 @@ type AudioBridge = {
   nodes: Map<HTMLMediaElement, MediaElementAudioSourceNode>;
   connected: MediaElementAudioSourceNode | null;
 };
-type RecordingResult = { url: string; filename: string; size: number; width: number; height: number };
+type RecordingResult = { url: string; filename: string; size: number; width: number; height: number; frameRate: number };
 
 function withTimeout<T>(promise: Promise<T>, milliseconds: number) {
   return new Promise<T>((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error("Không khởi động được media trong thời gian chờ. Hãy thử lại.")), milliseconds);
     promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
   });
+}
+
+async function waitForVideo(video: HTMLVideoElement) {
+  if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) return;
+  if (video.error) throw new Error("Không đọc được video để ghi. Hãy thử một tệp khác.");
+  let dispose = () => {};
+  const ready = new Promise<void>((resolve, reject) => {
+    const check = () => { if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) resolve(); };
+    const fail = () => reject(new Error("Không đọc được video để ghi. Hãy thử một tệp khác."));
+    video.addEventListener("loadeddata", check);
+    video.addEventListener("canplay", check);
+    video.addEventListener("error", fail);
+    dispose = () => {
+      video.removeEventListener("loadeddata", check);
+      video.removeEventListener("canplay", check);
+      video.removeEventListener("error", fail);
+    };
+    check();
+  });
+  try { await withTimeout(ready, 10000); }
+  finally { dispose(); }
 }
 
 export function useRecorder() {
@@ -100,20 +121,27 @@ export function useRecorder() {
       if (audio.connected) audio.connected.disconnect(audio.destination);
       node.connect(audio.destination);
       audio.connected = node;
+      // With a separate audio track, its metadata can arrive before the background video's.
+      // Wait for actual video dimensions and its first frame before choosing export resolution.
+      if (options.settings.visualMode === "video" && options.video) await waitForVideo(options.video);
+      if (generation.current.value !== request) throw new DOMException("Đã hủy", "AbortError");
       const canvas = document.createElement("canvas");
-      const [width, height] = outputDimensions[options.settings.aspectRatio];
+      const { width, height, frameRate, videoBitsPerSecond, audioBitsPerSecond } = getRecordingQuality(options.settings, options.video);
       canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext("2d");
+      const ctx = canvas.getContext("2d", { alpha: false });
       if (!ctx) throw new Error("Không tạo được khung vẽ. Hãy thử lại.");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       // Vẽ bằng đúng phông của giao diện, và đợi phông tải xong để khung đầu tiên không bị lệch chữ.
       const fontFamily = typeof getComputedStyle === "function" && document.body ? getComputedStyle(document.body).fontFamily : undefined;
       await document.fonts?.ready;
-      const draw = () => renderScene(ctx, { ...options, fontFamily, currentTime: options.element.currentTime, duration: Number.isFinite(options.element.duration) ? options.element.duration : 0, reducedMotion });
+      if (generation.current.value !== request) throw new DOMException("Đã hủy", "AbortError");
+      const draw = (animationTime = performance.now()) => renderScene(ctx, { ...options, fontFamily, animationTime, currentTime: options.element.currentTime, duration: Number.isFinite(options.element.duration) ? options.element.duration : 0, reducedMotion });
       draw();
-      const videoStream = canvas.captureStream(30);
+      const videoStream = canvas.captureStream(frameRate);
       stream.current = new MediaStream([...videoStream.getVideoTracks(), ...audio.destination.stream.getAudioTracks().map(track => track.clone())]);
-      const mediaRecorder = new MediaRecorder(stream.current, { mimeType, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 192_000 });
+      const mediaRecorder = new MediaRecorder(stream.current, { mimeType, videoBitsPerSecond, audioBitsPerSecond });
       recorder.current = mediaRecorder;
       const chunks: Blob[] = [];
       let failed = false;
@@ -130,7 +158,7 @@ export function useRecorder() {
           const blob = new Blob(chunks, { type: mediaRecorder.mimeType || mimeType });
           const url = URL.createObjectURL(blob);
           resultUrl.current = url;
-          setResult({ url, filename: `khoang-lang-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`, size: blob.size, width, height });
+          setResult({ url, filename: `khoang-lang-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`, size: blob.size, width, height, frameRate });
         } else if (!failed) setError("Bản ghi chưa có dữ liệu. Hãy thử lại sau khi phát tệp.");
         setStatus("idle");
         options.onComplete?.();
@@ -155,15 +183,16 @@ export function useRecorder() {
       draw();
       const started = performance.now();
       const clipStart = options.element.currentTime;
-      let lastDraw = 0;
+      const shouldDraw = createFramePacer(started, frameRate);
+      let lastElapsed = 0;
       mediaRecorder.start(250);
       setStatus("recording");
       const tick = (now: number) => {
         if (mediaRecorder.state === "inactive") return;
-        if (now - lastDraw >= 1000 / 30) {
-          try { draw(); } catch { failed = true; setError("Không vẽ được media vào bản ghi. Hãy thử đổi tệp."); stop(); return; }
-          lastDraw = now;
-          setElapsed(Math.floor((now - started) / 1000));
+        if (shouldDraw(now)) {
+          try { draw(now); } catch { failed = true; setError("Không vẽ được media vào bản ghi. Hãy thử đổi tệp."); stop(); return; }
+          const seconds = Math.floor((now - started) / 1000);
+          if (seconds !== lastElapsed) { setElapsed(seconds); lastElapsed = seconds; }
           if (options.element.currentTime - clipStart >= options.settings.clipDuration || now - started >= (options.settings.clipDuration + 10) * 1000) { stop(); return; }
         }
         frame.current = requestAnimationFrame(tick);

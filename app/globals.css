@@ -48,6 +48,13 @@
     background: radial-gradient(ellipse at 20% 45%, #24312730, transparent 52%),
       radial-gradient(ellipse at 92% 45%, #28232c24, transparent 55%);
   }
+  /* Nền động nằm sau toàn bộ nội dung: .studio-shell có isolation nên z-index âm không lọt ra ngoài. */
+  .studio-backdrop {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    pointer-events: none;
+  }
   .studio-main {
     display: flex;
     width: 100%;
@@ -356,6 +363,7 @@
   .visual-mode-option { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 10px; border: 1px solid #ffffff1c; border-radius: 10px; padding: 22px 10px; color: #9cab92; font-size: 12px; }
   .visual-mode-option strong { font-weight: 500; color: #d9e3d0; }
   .visual-mode-option span { font-size: 10px; }
+  .backdrop-grid .visual-mode-option { gap: 8px; padding: 16px 9px; }
   .selected-mode { border-color: #768964; background: #252e20; }
   .volume-range { height: 5px; margin-block: 17px; }
   .volume-range::-webkit-slider-thumb { height: 13px; width: 13px; }

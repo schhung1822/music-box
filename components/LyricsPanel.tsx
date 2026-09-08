@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { LyricLine } from "../types/studio";
+import { lyricScrollEase, lyricTransitionMs } from "../utils/lyricMotion";
 
 type LyricsPanelProps = {
   lines: LyricLine[];
@@ -11,8 +12,6 @@ type LyricsPanelProps = {
 };
 
 // Cùng nhịp với hiệu ứng mờ dần trong CSS và với bản ghi trên canvas.
-const scrollDuration = 420;
-const easeOut = (t: number) => 1 - (1 - t) ** 3;
 
 export function LyricsPanel({ lines, activeIndex, onActiveIndexChange, recordingMode }: LyricsPanelProps) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -36,8 +35,8 @@ export function LyricsPanel({ lines, activeIndex, onActiveIndexChange, recording
       if (!animate || Math.abs(distance) < 1) { container.scrollTop = target; return; }
       const startedAt = performance.now();
       const step = (now: number) => {
-        const progress = Math.min(1, (now - startedAt) / scrollDuration);
-        container.scrollTop = start + distance * easeOut(progress);
+        const progress = Math.min(1, (now - startedAt) / lyricTransitionMs);
+        container.scrollTop = start + distance * lyricScrollEase(progress);
         if (progress < 1) animation.current = requestAnimationFrame(step);
       };
       animation.current = requestAnimationFrame(step);

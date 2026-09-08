@@ -20,6 +20,9 @@
 # production
 /build
 
+# temp QA artifacts (bản ghi thử, ảnh chụp, tệp nguồn)
+/.tmp-recording-qa/
+
 # misc
 .DS_Store
 *.pem

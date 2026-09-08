@@ -36,7 +36,7 @@ export function RecordingPanel({ recorder, sourceMode, settings, ready, active, 
         <div className="recording-result">
           <h4 className="field-label">Bản ghi của bạn</h4>
           <video ref={preview} src={recorder.result.url} controls playsInline preload="metadata" className="recording-preview" onPlay={onPreview} />
-          <p className="field-hint mt-3">{recorder.result.width} × {recorder.result.height} · {(recorder.result.size / 1024 / 1024).toFixed(1)} MB</p>
+          <p className="field-hint mt-3">{recorder.result.width} × {recorder.result.height} · Mục tiêu {recorder.result.frameRate} fps · {(recorder.result.size / 1024 / 1024).toFixed(1)} MB</p>
           <div className="lrc-actions">
             <a className="primary-button" href={recorder.result.url} download={recorder.result.filename}><Icon name="download" size={16} /> Tải video WebM</a>
             <button type="button" className="file-button" onClick={recorder.clearResult}>Xóa bản ghi</button>

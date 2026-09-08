@@ -8,12 +8,14 @@ import { MediaSetup } from "./MediaSetup";
 import { LyricsEditor } from "./LyricsEditor";
 import { OutputSettings } from "./OutputSettings";
 import { RecordingPanel } from "./RecordingPanel";
+import { StudioBackground } from "./StudioBackground";
 import { Icon } from "./Icon";
 import { useLocalFiles } from "../hooks/useLocalFiles";
 import { useMediaPlayer } from "../hooks/useMediaPlayer";
 import { useYouTubePlayer } from "../hooks/useYouTubePlayer";
 import { useRecorder } from "../hooks/useRecorder";
-import type { DisplaySettings, LyricLine, MediaKind, SourceMode } from "../types/studio";
+import { useBackdropGate } from "../hooks/useBackdropGate";
+import type { BackgroundMode, DisplaySettings, LyricLine, MediaKind, SourceMode } from "../types/studio";
 import { activeLyricIndex, parsePlainLyrics } from "../utils/lyrics";
 import { formatTime } from "../utils/media";
 import { youtubeVideoId } from "../utils/youtube";
@@ -34,6 +36,8 @@ export function Studio() {
   const [manualIndex, setManualIndex] = useState(2);
   const [cleanView, setCleanView] = useState(false);
   const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "9:16", clipDuration: 30 });
+  // Nền trang đứng riêng ngoài DisplaySettings vì nó chỉ đổi giao diện, không đi vào bản ghi.
+  const [background, setBackground] = useState<BackgroundMode>("default");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("media");
   const [notice, setNotice] = useState("");
@@ -46,6 +50,7 @@ export function Studio() {
   const local = useMediaPlayer(files.assets.audio?.url, files.assets.video?.url, sourceMode === "local", volume, muted);
   const youtube = useYouTubePlayer(youtubeId, sourceMode === "youtube", volume, muted, youtubeRevision);
   const recorder = useRecorder();
+  const backdropGate = useBackdropGate();
   const playback = sourceMode === "local" ? local : youtube;
   // Thanh điều khiển chỉ ẩn ở chế độ xem sạch. Lúc ghi vẫn hiện, vì bản ghi được vẽ riêng
   // trên canvas nên giao diện không lọt vào video.
@@ -151,6 +156,7 @@ export function Studio() {
 
   return (
     <div className={`studio-shell minimal-studio${hiddenControls ? " recording-mode" : ""}`}>
+      <StudioBackground mode={background} gate={backdropGate} paused={recorder.busy} />
       <main ref={main} id="main-content" className="studio-main" tabIndex={-1} aria-label="Không gian âm nhạc"
         onDoubleClick={hiddenControls ? () => setCleanView(false) : undefined}>
         <h1 className="sr-only">Không gian âm nhạc của bạn</h1>
@@ -191,7 +197,7 @@ export function Studio() {
           <fieldset disabled={recorder.busy} hidden={tab !== "lyrics"}><LyricsEditor lines={lyrics} activeIndex={activeIndex} onApply={applyLyrics} onUpdate={updateLyrics} onSelect={selectLyric} title={title} artist={artist} duration={playback.duration}
             getCurrentTime={playback.getCurrentTime} currentTime={playback.currentTime} isPlaying={playback.isPlaying} ready={playback.ready}
             onTogglePlay={() => void togglePlayback()} active={settingsOpen && tab === "lyrics" && !recorder.busy} /></fieldset>
-          <fieldset disabled={recorder.busy} hidden={tab !== "display"}><OutputSettings sourceMode={sourceMode} settings={settings} onChange={setSettings} onCleanView={enterCleanView} /></fieldset>
+          <fieldset disabled={recorder.busy} hidden={tab !== "display"}><OutputSettings sourceMode={sourceMode} settings={settings} background={background} backdropGate={backdropGate} onChange={setSettings} onBackgroundChange={setBackground} onCleanView={enterCleanView} /></fieldset>
           <div hidden={tab !== "record"}><RecordingPanel recorder={recorder} sourceMode={sourceMode} settings={settings} ready={local.ready} active={settingsOpen && tab === "record"}
             currentTime={playback.currentTime} onSettingsChange={setSettings} onStart={startRecording} onPreview={pauseAll} /></div>
         </div>

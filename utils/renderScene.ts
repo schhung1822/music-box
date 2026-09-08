@@ -1,17 +1,19 @@
 import type { DisplaySettings, LyricLine } from "../types/studio";
 import { activeLyricIndex } from "./lyrics";
 import { formatTime } from "./media";
+import { lyricScrollEase, lyricTransitionMs } from "./lyricMotion";
 
 export type Scene = {
   title: string; artist: string; lyrics: LyricLine[]; manualLyricIndex: number;
   settings: DisplaySettings; currentTime: number; duration: number;
   video: HTMLVideoElement | null; cover: HTMLImageElement | null; reducedMotion: boolean;
   fontFamily?: string;
+  /** Monotonic animation clock in milliseconds, independent of media time quantization. */
+  animationTime?: number;
 };
 
 // Thời gian chuyển giữa hai câu lời, khớp với hiệu ứng trên giao diện.
-const transitionSeconds = .42;
-const easeOut = (t: number) => 1 - (1 - t) ** 3;
+const transitionSeconds = lyricTransitionMs / 1000;
 const mix = (from: number, to: number, amount: number) => from + (to - from) * amount;
 
 // Màu lấy nguyên từ giao diện (app/globals.css) để bản ghi và trình phát không lệch tông.
@@ -43,6 +45,20 @@ const mobile = {
   gridGap: 28,
 };
 
+function playerHeightFor(base: typeof desktop | typeof mobile, titleLines: number, controls: boolean) {
+  return base.art + base.songInfoTop + titleLines * base.titleSize * base.titleLine
+    + base.artistTop + base.artistSize * base.artistLine + base.progressTop + base.barHeight
+    + (controls ? base.timeTop + base.timeSize * base.timeLine + base.controlsTop + base.playSize : 0);
+}
+
+/** Artwork size in the canonical composition, used when preserving uploaded video detail. */
+export function getSceneArtSize(settings: DisplaySettings) {
+  if (settings.aspectRatio === "4:3") return settings.showLyrics ? 560 : 620;
+  const lyricBudget = settings.showLyrics ? mobile.gridGap + 4 * mobile.lyricSize * mobile.lyricLine : 0;
+  const total = playerHeightFor(mobile, 2, settings.showControls) + lyricBudget;
+  return mobile.art * Math.min(1080 / 430, (1920 - 40) / total);
+}
+
 // Đường vẽ lấy nguyên từ components/Icon.tsx (khung 24×24, nét 1.6, đầu tròn).
 const icons = {
   sliders: { paths: ["M4 7h5m4 0h7M4 17h9m4 0h3"], circles: [[11, 7, 2], [15, 17, 2]] as [number, number, number][] },
@@ -60,7 +76,7 @@ function blur(ctx: CanvasRenderingContext2D, radius: number) {
 }
 
 /** Nền toả sáng của .studio-shell: hai vệt tròn rất nhạt hai bên. */
-function drawBackdrop(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawBackdrop(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number) {
   ctx.fillStyle = colors.background;
   ctx.fillRect(0, 0, width, height);
   const reach = Math.hypot(width, height);
@@ -75,6 +91,20 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, width: number, height: numb
     ctx.fillRect(-width * 2, -height * 2, width * 4, height * 4);
     ctx.restore();
   }
+}
+
+const backdrops = new WeakMap<CanvasRenderingContext2D, OffscreenCanvas>();
+function drawCachedBackdrop(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  if (typeof OffscreenCanvas === "undefined") { drawBackdrop(ctx, width, height); return; }
+  let backdrop = backdrops.get(ctx);
+  if (!backdrop || backdrop.width !== ctx.canvas.width || backdrop.height !== ctx.canvas.height) {
+    backdrop = new OffscreenCanvas(ctx.canvas.width, ctx.canvas.height);
+    const backgroundContext = backdrop.getContext("2d", { alpha: false });
+    if (!backgroundContext) { drawBackdrop(ctx, width, height); return; }
+    drawBackdrop(backgroundContext, backdrop.width, backdrop.height);
+    backdrops.set(ctx, backdrop);
+  }
+  ctx.drawImage(backdrop, 0, 0, width, height);
 }
 
 function drawCrop(ctx: CanvasRenderingContext2D, source: HTMLVideoElement | HTMLImageElement, x: number, y: number, size: number) {
@@ -137,7 +167,13 @@ function drawVisual(ctx: CanvasRenderingContext2D, scene: Scene, x: number, y: n
 }
 
 /** Xuống dòng theo từ. Chỉ khi một từ dài hơn cả dòng mới đành cắt giữa từ. */
+const textLayouts = new WeakMap<CanvasRenderingContext2D, Map<string, string[]>>();
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
+  let cache = textLayouts.get(ctx);
+  if (!cache) { cache = new Map(); textLayouts.set(ctx, cache); }
+  const key = `${ctx.font}|${ctx.letterSpacing}|${maxWidth}|${maxLines}|${text}`;
+  const cached = cache.get(key);
+  if (cached) return cached;
   const lines: string[] = [];
   let line = "";
   for (const word of text.split(/\s+/).filter(Boolean)) {
@@ -159,6 +195,8 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number,
     while (last && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
     lines[maxLines - 1] = `${last}…`;
   }
+  if (cache.size > 2000) cache.clear();
+  cache.set(key, lines);
   return lines;
 }
 
@@ -168,23 +206,95 @@ function lyricAlpha(distance: number) {
 }
 // Độ nhòe theo khoảng cách, khớp với .lyric-line[data-distance] bên CSS.
 function lyricBlur(distance: number) {
-  return distance < 1.5 ? 0 : distance < 2.5 ? .75 : distance < 3.5 ? 1.5 : 0;
+  const stops = [0, 0, .75, 1.5, 0];
+  const lower = Math.min(4, Math.floor(distance));
+  return mix(stops[lower], stops[Math.min(4, lower + 1)], distance - Math.floor(distance));
 }
 const white = (alpha: number) => `rgba(255, 255, 255, ${Math.round(alpha * 1000) / 1000})`;
 
-/**
- * Câu lời không nhảy cóc: trong khoảng chuyển tiếp, vị trí và độ mờ chạy dần
- * từ câu trước sang câu hiện tại. Mọi thứ suy ra từ mốc thời gian nên mỗi khung hình
- * vẽ lại được y hệt mà không cần nhớ trạng thái.
- */
-function lyricPhase(scene: Scene, index: number) {
-  const time = scene.lyrics[index]?.time;
-  if (scene.reducedMotion || index < 0 || time === null || time === undefined) return { from: index, progress: 1 };
-  const elapsed = scene.currentTime - time;
-  if (elapsed < 0 || elapsed >= transitionSeconds) return { from: index, progress: 1 };
-  let from = -1;
-  for (let i = index - 1; i >= 0; i--) if (scene.lyrics[i].time !== null) { from = i; break; }
-  return { from, progress: easeOut(elapsed / transitionSeconds) };
+// Timed keyframes keep deterministic renders continuous; the recorder's monotonic clock
+// continues those transitions smoothly even when the media clock repeats a timestamp.
+type LyricKeyframe = { time: number; index: number; from: number };
+const lyricTimelines = new WeakMap<LyricLine[], LyricKeyframe[]>();
+const liveMotion = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; index: number; from: number; started: number }>();
+
+function timelineFocus(scene: Scene, index: number) {
+  if (scene.reducedMotion || index < 0) return index;
+  let timeline = lyricTimelines.get(scene.lyrics);
+  if (!timeline) {
+    const cues = scene.lyrics.map((line, i) => ({ time: line.time, index: i }))
+      .filter((cue): cue is { time: number; index: number } => cue.time !== null)
+      .sort((a, b) => a.time - b.time || a.index - b.index);
+    timeline = [];
+    for (const cue of cues) {
+      const previous = timeline[timeline.length - 1];
+      const from = previous ? mix(previous.from, previous.index, lyricScrollEase((cue.time - previous.time) / transitionSeconds)) : -1;
+      timeline.push({ ...cue, from });
+    }
+    lyricTimelines.set(scene.lyrics, timeline);
+  }
+  const cue = timeline.find(entry => entry.index === index);
+  return cue ? mix(cue.from, index, lyricScrollEase((scene.currentTime - cue.time) / transitionSeconds)) : index;
+}
+
+function lyricFocus(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
+  const now = scene.animationTime;
+  if (now === undefined) return timelineFocus(scene, index);
+  let motion = liveMotion.get(ctx);
+  if (!motion || motion.lyrics !== scene.lyrics || scene.reducedMotion) {
+    motion = { lyrics: scene.lyrics, index, from: index, started: now - lyricTransitionMs };
+    liveMotion.set(ctx, motion);
+  }
+  const focus = mix(motion.from, motion.index, lyricScrollEase((now - motion.started) / lyricTransitionMs));
+  if (motion.index !== index) {
+    motion = { lyrics: scene.lyrics, index, from: focus, started: now };
+    liveMotion.set(ctx, motion);
+  }
+  return scene.reducedMotion ? index : focus;
+}
+
+type PortraitLayer = { index: number; alpha: number; shift: number };
+type PortraitKeyframe = { time: number; index: number; from: PortraitLayer[] };
+const portraitTimelines = new WeakMap<LyricLine[], PortraitKeyframe[]>();
+const portraitMotion = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; index: number; from: PortraitLayer[]; started: number }>();
+
+function blendPortrait(from: PortraitLayer[], index: number, progress: number): PortraitLayer[] {
+  const outgoing = from.filter(layer => layer.index !== index)
+    .map(layer => ({ ...layer, alpha: layer.alpha * (1 - progress), shift: mix(layer.shift, -1, progress) }));
+  const previous = from.find(layer => layer.index === index);
+  if (index >= 0) outgoing.push({ index, alpha: mix(previous?.alpha ?? 0, 1, progress), shift: mix(previous?.shift ?? 1, 0, progress) });
+  return outgoing.filter(layer => layer.alpha > .001);
+}
+
+function singleLyricLayers(ctx: CanvasRenderingContext2D, scene: Scene, index: number): PortraitLayer[] {
+  const settled = index < 0 ? [] : [{ index, alpha: 1, shift: 0 }];
+  const now = scene.animationTime;
+  if (now !== undefined) {
+    let motion = portraitMotion.get(ctx);
+    if (!motion || motion.lyrics !== scene.lyrics || scene.reducedMotion) {
+      motion = { lyrics: scene.lyrics, index, from: settled, started: now - lyricTransitionMs };
+      portraitMotion.set(ctx, motion);
+    }
+    const layers = blendPortrait(motion.from, motion.index, lyricScrollEase((now - motion.started) / lyricTransitionMs));
+    if (motion.index !== index) portraitMotion.set(ctx, { lyrics: scene.lyrics, index, from: layers, started: now });
+    return scene.reducedMotion ? settled : layers;
+  }
+  if (scene.reducedMotion || index < 0) return settled;
+  let timeline = portraitTimelines.get(scene.lyrics);
+  if (!timeline) {
+    const cues = scene.lyrics.map((line, i) => ({ time: line.time, index: i }))
+      .filter((cue): cue is { time: number; index: number } => cue.time !== null)
+      .sort((a, b) => a.time - b.time || a.index - b.index);
+    timeline = [];
+    for (const cue of cues) {
+      const previous = timeline[timeline.length - 1];
+      const from = previous ? blendPortrait(previous.from, previous.index, lyricScrollEase((cue.time - previous.time) / transitionSeconds)) : [];
+      timeline.push({ ...cue, from });
+    }
+    portraitTimelines.set(scene.lyrics, timeline);
+  }
+  const cue = timeline.find(entry => entry.index === index);
+  return cue ? blendPortrait(cue.from, index, lyricScrollEase((scene.currentTime - cue.time) / transitionSeconds)) : settled;
 }
 
 type Metrics = {
@@ -200,32 +310,27 @@ function measure(ctx: CanvasRenderingContext2D, scene: Scene, width: number, hei
   // Số dòng tiêu đề không đổi theo tỉ lệ phóng, nên đo trước ở pixel giao diện.
   font(ctx, family, 650, base.titleSize, base.titleTracking);
   const titleLines = wrapText(ctx, scene.title || "Một khoảng lặng", base.art, 2).length;
-  const playerHeight = base.art + base.songInfoTop + titleLines * base.titleSize * base.titleLine
-    + base.artistTop + base.artistSize * base.artistLine
-    + base.progressTop + base.barHeight
-    + (scene.settings.showControls ? base.timeTop + base.timeSize * base.timeLine + base.controlsTop + base.playSize : 0);
+  const playerHeight = playerHeightFor(base, titleLines, scene.settings.showControls);
 
   if (wide) {
-    const mainWidth = Math.min(1280, width);
-    const mainX = (width - mainWidth) / 2;
-    const inner = mainWidth - 112;
-    const gap = Math.min(112, Math.max(40, width * .075));
-    const leftColumn = (inner - gap) / 2.08;
-    const art = Math.min(desktop.art, leftColumn);
+    const art = getSceneArtSize(scene.settings);
     const scale = art / desktop.art;
-    const lyricViewport = Math.min(600, Math.max(420, height * .67));
+    const gap = 96;
+    const lyricWidth = art * 1.08;
+    const mainX = (width - art - gap - lyricWidth) / 2;
+    const lyricViewport = 600 * scale;
     return {
-      wide, scale, art, artX: mainX + 56 + (leftColumn - art) / 2,
+      wide, scale, art, artX: scene.settings.showLyrics ? mainX : (width - art) / 2,
       playerTop: (height - playerHeight * scale) / 2,
-      lyricX: mainX + 56 + leftColumn + gap, lyricWidth: leftColumn * 1.08,
+      lyricX: mainX + art + gap, lyricWidth,
       lyricTop: (height - lyricViewport) / 2, lyricHeight: lyricViewport, family,
     };
   }
   // Khung dọc: bố cục mobile phóng cho vừa khung, vẫn chừa chỗ cho một câu lời.
-  const lyricBudget = 4 * mobile.lyricSize * mobile.lyricLine;
-  const total = playerHeight + mobile.gridGap + lyricBudget;
-  const scale = Math.min(width / 430, (height - 40) / total);
-  const art = mobile.art * scale;
+  const lyricBudget = scene.settings.showLyrics ? 4 * mobile.lyricSize * mobile.lyricLine : 0;
+  const total = playerHeight + (scene.settings.showLyrics ? mobile.gridGap : 0) + lyricBudget;
+  const art = getSceneArtSize(scene.settings);
+  const scale = art / mobile.art;
   const top = (height - total * scale) / 2;
   return {
     wide, scale, art, artX: (width - art) / 2, playerTop: top,
@@ -293,67 +398,80 @@ function drawControls(ctx: CanvasRenderingContext2D, scene: Scene, metrics: Metr
 }
 
 /** Khung ngang: xếp câu hiện tại cùng vài câu quanh nó, trượt mượt khi đổi câu. */
+type LyricEntry = { index: number; wrapped: string[]; top: number; height: number };
+const lyricStacks = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; key: string; entries: LyricEntry[] }>();
+
 function drawLyricStack(ctx: CanvasRenderingContext2D, scene: Scene, metrics: Metrics, index: number) {
-  const { from, progress } = lyricPhase(scene, index);
+  const focus = lyricFocus(ctx, scene, index);
   const { scale, lyricX, lyricWidth, lyricTop, lyricHeight, family } = metrics;
   const size = desktop.lyricSize * scale;
   const lineHeight = size * desktop.lyricLine;
   const gap = desktop.lyricPad * 2 * scale;
   const top = lyricTop;
   const bottom = lyricTop + lyricHeight;
+  const padding = 6 * scale;
   ctx.textAlign = "left";
 
-  const first = Math.max(0, Math.min(from < 0 ? index : from, index) - 2);
-  const last = Math.min(scene.lyrics.length - 1, Math.max(from, index) + 2);
-  const entries: { index: number; wrapped: string[] }[] = [];
-  for (let i = first; i <= last; i++) {
-    const text = scene.lyrics[i]?.text;
-    if (!text) continue;
-    font(ctx, family, i === index ? 750 : 600, size, desktop.lyricTracking * scale);
-    entries.push({ index: i, wrapped: wrapText(ctx, text, lyricWidth, i === index ? 4 : 3) });
+  // Measure a stable stack once. Changing the active line must never remove neighbours
+  // or change wrapping, both of which used to make the recording jump between frames.
+  const key = `${family}|${scale}|${lyricWidth}`;
+  let layout = lyricStacks.get(ctx);
+  if (!layout || layout.lyrics !== scene.lyrics || layout.key !== key) {
+    let offset = 0;
+    font(ctx, family, 750, size, desktop.lyricTracking * scale);
+    const entries = scene.lyrics.map((line, i) => {
+      const wrapped = wrapText(ctx, line.text || "♪", lyricWidth - 2 * padding, 4);
+      const height = wrapped.length * lineHeight;
+      const entry = { index: i, wrapped, top: offset, height };
+      offset += height + gap;
+      return entry;
+    });
+    layout = { lyrics: scene.lyrics, key, entries };
+    lyricStacks.set(ctx, layout);
   }
+  const { entries } = layout;
   if (!entries.length) return;
 
-  const heights = entries.map(entry => entry.wrapped.length * lineHeight);
-  const stackHeight = () => heights.reduce((sum, value) => sum + value, 0) + gap * (entries.length - 1);
-  while (entries.length > 1 && stackHeight() > bottom - top) {
-    let farthest = 0;
-    entries.forEach((entry, i) => {
-      if (Math.abs(entry.index - index) >= Math.abs(entries[farthest].index - index)) farthest = i;
-    });
-    entries.splice(farthest, 1); heights.splice(farthest, 1);
-  }
-  const tops: number[] = [];
-  entries.reduce((offset, _, i) => { tops[i] = offset; return offset + heights[i] + gap; }, 0);
-  const middle = lyricTop + lyricHeight / 2;
-  const offsetFor = (lyricIndex: number) => {
-    const at = entries.findIndex(entry => entry.index === lyricIndex);
-    if (at < 0) return middle - tops[0] - heights[0] / 2 + heights[0] + gap;
-    return middle - tops[at] - heights[at] / 2;
+  const centerFor = (lyricIndex: number) => {
+    const entry = entries[Math.min(entries.length - 1, Math.max(0, lyricIndex))];
+    return entry.top + entry.height / 2;
   };
-  const offset = progress >= 1 ? offsetFor(index) : mix(offsetFor(from), offsetFor(index), progress);
-  const start = Math.min(Math.max(offset, top), bottom - stackHeight());
+  const lower = Math.floor(focus);
+  const center = mix(centerFor(lower), centerFor(lower + 1), focus - lower);
+  const start = lyricTop + lyricHeight / 2 - center;
 
-  entries.forEach((entry, i) => {
-    const near = Math.abs(entry.index - index);
-    const distance = progress >= 1 ? near : mix(Math.abs(entry.index - from), near, progress);
-    const alpha = progress >= 1 ? lyricAlpha(near) : mix(lyricAlpha(Math.abs(entry.index - from)), lyricAlpha(near), progress);
-    font(ctx, family, entry.index === index ? 750 : 600, size, desktop.lyricTracking * scale);
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(lyricX, top, lyricWidth, lyricHeight, 0); ctx.clip();
+  entries.forEach(entry => {
+    if (start + entry.top + entry.height < top || start + entry.top > bottom) return;
+    const distance = Math.abs(entry.index - focus);
+    const emphasis = .975 + .025 * Math.max(0, 1 - distance);
+    const alpha = lyricAlpha(distance);
+    font(ctx, family, Math.round(600 + 150 * Math.max(0, 1 - distance)), size * emphasis, desktop.lyricTracking * scale * emphasis);
     blur(ctx, lyricBlur(distance) * scale);
-    ctx.fillStyle = white(alpha);
-    entry.wrapped.forEach((line, n) => ctx.fillText(line, lyricX, start + tops[i] + n * lineHeight));
+    entry.wrapped.forEach((line, n) => {
+      const y = start + entry.top + entry.height * (1 - emphasis) / 2 + n * lineHeight * emphasis;
+      if (y + lineHeight < top || y > bottom) return;
+      const relative = (y + lineHeight / 2 - top) / lyricHeight;
+      const fade = Math.max(0, Math.min(1, relative / .18, (1 - relative) / .2));
+      ctx.fillStyle = white(alpha * fade);
+      ctx.fillText(line, lyricX + padding * emphasis, y);
+    });
   });
+  ctx.restore();
   blur(ctx, 0);
 }
 
 /** Khung dọc: một câu chữ lớn, câu cũ mờ dần trôi lên nhường chỗ cho câu mới. */
 function drawSingleLyric(ctx: CanvasRenderingContext2D, scene: Scene, metrics: Metrics, index: number) {
-  const { from, progress } = lyricPhase(scene, index);
+  const layers = singleLyricLayers(ctx, scene, index);
   const { scale, lyricX, lyricWidth, lyricTop, lyricHeight, family } = metrics;
   const size = mobile.lyricSize * scale;
   const lineHeight = size * mobile.lyricLine;
   const slide = size * .5;
   ctx.textAlign = "left";
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(lyricX, lyricTop, lyricWidth, lyricHeight, 0); ctx.clip();
   const draw = (text: string, weight: number, alpha: number, shift: number) => {
     if (!text || alpha <= .01) return;
     font(ctx, family, weight, size, mobile.lyricTracking * scale);
@@ -362,14 +480,18 @@ function drawSingleLyric(ctx: CanvasRenderingContext2D, scene: Scene, metrics: M
     const top = lyricTop + (lyricHeight - wrapped.length * lineHeight) / 2 + shift;
     wrapped.forEach((line, i) => ctx.fillText(line, lyricX, top + i * lineHeight));
   };
-  if (progress < 1 && from >= 0 && from !== index) draw(scene.lyrics[from]?.text ?? "", 600, 1 - progress, -slide * progress);
-  draw(scene.lyrics[index]?.text ?? "", 750, progress, slide * (1 - progress));
+  layers.forEach(layer => draw(scene.lyrics[layer.index]?.text || "♪", 750, layer.alpha, slide * layer.shift));
+  ctx.restore();
 }
 
 export function renderScene(ctx: CanvasRenderingContext2D, scene: Scene) {
-  const { width, height } = ctx.canvas;
+  // Layout uses logical pixels; increasing export resolution also increases the artwork
+  // and text detail without creating a larger empty border around a 480px player.
+  const [width, height] = scene.settings.aspectRatio === "4:3" ? [1440, 1080] : [1080, 1920];
+  ctx.save();
+  ctx.scale(ctx.canvas.width / width, ctx.canvas.height / height);
   blur(ctx, 0);
-  drawBackdrop(ctx, width, height);
+  drawCachedBackdrop(ctx, width, height);
   const metrics = measure(ctx, scene, width, height);
   const { scale, art, artX, playerTop, family } = metrics;
   const base = metrics.wide ? desktop : mobile;
@@ -404,9 +526,11 @@ export function renderScene(ctx: CanvasRenderingContext2D, scene: Scene) {
   }
   if (scene.settings.showControls) drawControls(ctx, scene, metrics, artX, barY + barHeight + base.timeTop * scale);
 
-  if (!scene.settings.showLyrics) return;
-  const timed = scene.lyrics.some(line => line.time !== null);
-  const index = timed ? activeLyricIndex(scene.lyrics, scene.currentTime) : scene.manualLyricIndex;
-  if (metrics.wide) drawLyricStack(ctx, scene, metrics, index);
-  else drawSingleLyric(ctx, scene, metrics, index);
+  if (scene.settings.showLyrics) {
+    const timed = scene.lyrics.some(line => line.time !== null);
+    const index = timed ? activeLyricIndex(scene.lyrics, scene.currentTime) : scene.manualLyricIndex;
+    if (metrics.wide) drawLyricStack(ctx, scene, metrics, index);
+    else drawSingleLyric(ctx, scene, metrics, index);
+  }
+  ctx.restore();
 }

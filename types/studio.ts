@@ -1,5 +1,7 @@
 export type SourceMode = "local" | "youtube";
 export type VisualMode = "video" | "disc";
+// Nền trang: "default" là nền tối sẵn có, ba giá trị còn lại là nền WebGL của React Bits.
+export type BackgroundMode = "default" | "molten" | "waves" | "liquid";
 export type AspectRatio = "9:16" | "4:3";
 export type MediaKind = "video" | "audio" | "cover";
 export type LocalAsset = { file: File; url: string };

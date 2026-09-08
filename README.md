@@ -1,6 +1,6 @@
 # Khoảng lặng · Chill Music Recorder
 
-Giao diện nghe nhạc tối giản bằng tiếng Việt, chạy trên cấu trúc Next.js 16, React 19, TypeScript và Tailwind CSS 4 có sẵn. Không thêm thư viện, máy chủ xử lý dữ liệu, đăng nhập hoặc lưu trữ.
+Giao diện nghe nhạc tối giản bằng tiếng Việt, chạy trên cấu trúc Next.js 16, React 19, TypeScript và Tailwind CSS 4 có sẵn. Không có máy chủ xử lý dữ liệu, đăng nhập hoặc lưu trữ. Thư viện ngoài duy nhất là `ogl` và `three`, chỉ dùng cho các nền động tùy chọn và chỉ tải khi bạn chọn một nền.
 
 ## Chạy dự án
 
@@ -35,9 +35,25 @@ Ba mục:
 
 1. **Nguồn phát**: chọn video/âm thanh/ảnh bìa, chọn nguồn YouTube, nhập tên bài hát và nghệ sĩ.
 2. **Lời bài hát**: dán và áp dụng lời lên giao diện, chọn tệp LRC, chọn câu đang hiển thị để xem thử.
-3. **Hiển thị**: bật/tắt lời và tiến trình trong chế độ ghi hình; chọn tỉ lệ cho tính năng xuất video sau này.
+3. **Hiển thị**: chọn kiểu khung hình, chọn nền trang, bật/tắt lời và tiến trình trong chế độ ghi hình, chọn tỉ lệ bản ghi.
 
 Tệp hiện chỉ được chọn trong bộ nhớ, chưa đọc hoặc phát. Tệp LRC chưa được phân tích. Chữ mẫu được viết riêng cho ứng dụng, không trích lời bài hát có sẵn. Thay lời sẽ chuyển nhãn từ lời minh họa sang lời của bạn.
+
+## Nền trang
+
+Mục **Hiển thị** có bốn lựa chọn nền:
+
+- **Mặc định** — nền tối sẵn có với hai vệt sáng rất nhạt, thuần CSS.
+- **Kim loại nóng chảy**, **Sóng gradient**, **Ether lỏng** — ba nền WebGL lấy từ [React Bits](https://reactbits.dev), đã chỉnh bảng màu theo tông xanh rêu của giao diện.
+
+Ba nền động chỉ là lớp trang trí sau nội dung:
+
+- Chỉ tải mã khi được chọn, nên nền mặc định không phải trả phí cho `ogl` hay `three`.
+- Đặt `pointer-events: none` nên không chắn thao tác nào.
+- Tự tắt khi hệ điều hành bật giảm chuyển động, khi trình duyệt không dựng được WebGL 2, và trong lúc ghi hình để nhường GPU cho canvas.
+- **Không đi vào bản ghi.** Video xuất ra luôn dùng nền tối mặc định, vì bản ghi được vẽ riêng trên canvas 2D trong `utils/renderScene.ts`.
+
+Muốn đổi tông màu nền thì sửa hằng số `palettes` trong `components/StudioBackground.tsx`.
 
 ## Chế độ ghi hình
 
@@ -67,8 +83,12 @@ components/
   LyricsPanel.tsx          Hiển thị, làm mờ và cuộn lời
   LyricsEditor.tsx         Nhập lời, chọn LRC và câu xem thử
   MediaSetup.tsx           Chọn tệp, nguồn phát, tên bài và nghệ sĩ
-  OutputSettings.tsx       Tùy chọn hiển thị và xuất video sau này
+  OutputSettings.tsx       Tùy chọn hiển thị, nền trang và xuất video sau này
+  StudioBackground.tsx     Chọn và gắn lớp nền động, có chốt an toàn khi WebGL hỏng
+  backgrounds/             Nguồn nguyên bản của React Bits (ogl, three)
   Icon.tsx                 Biểu tượng giao diện
+hooks/
+  useBackdropGate.ts       Đo giảm chuyển động và khả năng dựng WebGL 2
 next.config.ts             Tắt chỉ báo phát triển trên màn hình
 ```
 

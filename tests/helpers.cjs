@@ -143,7 +143,7 @@ function browserFakes() {
   const recordings = [];
   class FakeRecorder {
     static isTypeSupported(type) { return type.startsWith("video/webm"); }
-    constructor(stream, options) { this.stream = stream; this.mimeType = options.mimeType; this.state = "inactive"; recordings.push(this); }
+    constructor(stream, options) { this.stream = stream; this.options = options; this.mimeType = options.mimeType; this.state = "inactive"; recordings.push(this); }
     start(timeslice) { this.timeslice = timeslice; this.state = "recording"; }
     stop() {
       this.state = "inactive";
