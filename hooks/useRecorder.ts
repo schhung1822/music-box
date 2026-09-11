@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { renderScene, type Scene } from "../utils/renderScene";
-import { createFramePacer, getRecordingQuality } from "../utils/recordingQuality";
+import { containerOf, createFramePacer, describeCodecs, getRecordingQuality, pickRecordingFormat } from "../utils/recordingQuality";
+import type { VideoFormat } from "../types/studio";
 
 type StartOptions = Omit<Scene, "currentTime" | "duration" | "reducedMotion"> & {
   element: HTMLMediaElement;
@@ -16,7 +17,8 @@ type AudioBridge = {
   nodes: Map<HTMLMediaElement, MediaElementAudioSourceNode>;
   connected: MediaElementAudioSourceNode | null;
 };
-type RecordingResult = { url: string; filename: string; size: number; width: number; height: number; frameRate: number };
+// `format` và `codecs` đọc từ bản ghi thật, nên chúng khác `requestedFormat` khi trình duyệt phải lùi định dạng.
+type RecordingResult = { url: string; filename: string; size: number; width: number; height: number; frameRate: number; format: VideoFormat; requestedFormat: VideoFormat; codecs: string };
 
 function withTimeout<T>(promise: Promise<T>, milliseconds: number) {
   return new Promise<T>((resolve, reject) => {
@@ -93,8 +95,9 @@ export function useRecorder() {
       setError("Trình duyệt chưa hỗ trợ ghi Canvas kèm âm thanh. Hãy mở bằng Chrome hoặc Edge trên máy tính.");
       return;
     }
-    const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find(type => MediaRecorder.isTypeSupported(type));
-    if (!mimeType) { setError("Trình duyệt chưa hỗ trợ xuất WebM. Hãy thử Chrome hoặc Edge."); return; }
+    const requestedFormat = options.settings.videoFormat;
+    const output = pickRecordingFormat(requestedFormat);
+    if (!output) { setError("Trình duyệt chưa hỗ trợ xuất MP4 hay WebM. Hãy thử Chrome hoặc Edge."); return; }
     // Đủ siêu dữ liệu là ghi được. Tệp không khai báo tổng thời lượng vẫn dừng đúng hẹn
     // nhờ mốc thời gian phát và đồng hồ dự phòng bên dưới.
     if (options.element.readyState < 1) {
@@ -141,7 +144,7 @@ export function useRecorder() {
       draw();
       const videoStream = canvas.captureStream(frameRate);
       stream.current = new MediaStream([...videoStream.getVideoTracks(), ...audio.destination.stream.getAudioTracks().map(track => track.clone())]);
-      const mediaRecorder = new MediaRecorder(stream.current, { mimeType, videoBitsPerSecond, audioBitsPerSecond });
+      const mediaRecorder = new MediaRecorder(stream.current, { mimeType: output.mimeType, videoBitsPerSecond, audioBitsPerSecond });
       recorder.current = mediaRecorder;
       const chunks: Blob[] = [];
       let failed = false;
@@ -155,10 +158,13 @@ export function useRecorder() {
         if (!mounted.current) return;
         if (!failed && chunks.length) {
           if (resultUrl.current) URL.revokeObjectURL(resultUrl.current);
-          const blob = new Blob(chunks, { type: mediaRecorder.mimeType || mimeType });
+          const actualType = mediaRecorder.mimeType || output.mimeType;
+          const blob = new Blob(chunks, { type: actualType });
           const url = URL.createObjectURL(blob);
           resultUrl.current = url;
-          setResult({ url, filename: `khoang-lang-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`, size: blob.size, width, height, frameRate });
+          const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+          const format = containerOf(actualType);
+          setResult({ url, filename: `khoang-lang-${stamp}.${format}`, size: blob.size, width, height, frameRate, format, requestedFormat, codecs: describeCodecs(actualType) });
         } else if (!failed) setError("Bản ghi chưa có dữ liệu. Hãy thử lại sau khi phát tệp.");
         setStatus("idle");
         options.onComplete?.();

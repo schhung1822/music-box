@@ -35,7 +35,7 @@ export function Studio() {
   const [lyrics, setLyrics] = useState<LyricLine[]>(initialLyrics);
   const [manualIndex, setManualIndex] = useState(2);
   const [cleanView, setCleanView] = useState(false);
-  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "9:16", clipDuration: 30 });
+  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "4:3", videoFormat: "mp4", clipDuration: 30 });
   // Nền trang đứng riêng ngoài DisplaySettings vì nó chỉ đổi giao diện, không đi vào bản ghi.
   const [background, setBackground] = useState<BackgroundMode>("default");
   const [settingsOpen, setSettingsOpen] = useState(false);

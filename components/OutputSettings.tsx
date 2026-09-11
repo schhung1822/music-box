@@ -18,8 +18,8 @@ const backdrops = [
 ] as const;
 
 const ratios: { value: AspectRatio; shape: [number, number]; name: string; lyrics: string }[] = [
-  { value: "9:16", shape: [13, 22], name: "Khung dọc", lyrics: "Hiện đúng một câu, chữ lớn" },
   { value: "4:3", shape: [25, 19], name: "Khung ngang", lyrics: "Hiện nhiều câu như trên desktop" },
+  { value: "9:16", shape: [13, 22], name: "Khung dọc", lyrics: "Hiện đúng một câu, chữ lớn" },
 ];
 
 const backdropNotes: Partial<Record<BackdropGate, string>> = {
@@ -38,7 +38,6 @@ export function OutputSettings({ sourceMode, settings, background, backdropGate,
           <button type="button" className={`visual-mode-option${settings.visualMode === "disc" ? " selected-mode" : ""}`} aria-pressed={settings.visualMode === "disc"} onClick={() => onChange({ ...settings, visualMode: "disc" })}><Icon name="disc" size={29} /><strong>Đĩa quay</strong><span>Ảnh bìa ở tâm đĩa</span></button>
         </div>
       </fieldset>
-      <p className="field-hint mt-3">{sourceMode === "youtube" ? "YouTube luôn hiển thị trình phát chính thức. Chế độ đĩa dùng với tệp trên máy." : "Đĩa quay theo nhạc và dừng khi tạm dừng. Chưa chọn ảnh bìa? Đĩa sẽ dùng hình minh họa."}</p>
       <div className="settings-divider" />
       <fieldset>
         <legend className="field-label">Nền trang</legend>
@@ -51,7 +50,6 @@ export function OutputSettings({ sourceMode, settings, background, backdropGate,
           ))}
         </div>
       </fieldset>
-      <p className="field-hint mt-3">Nền động vẽ bằng WebGL và chỉ hiện trên giao diện: bản ghi luôn dùng nền tối mặc định. Nền cũng tạm nghỉ trong lúc ghi hình.</p>
       {background !== "default" && backdropNotes[backdropGate] && <p className="field-error mt-2">{backdropNotes[backdropGate]}</p>}
       <div className="settings-divider" />
       <div className="switch-row">
@@ -67,7 +65,6 @@ export function OutputSettings({ sourceMode, settings, background, backdropGate,
         <input id="show-controls" className="toggle-input" type="checkbox" role="switch" checked={settings.showControls} onChange={event => onChange({ ...settings, showControls: event.target.checked })} />
       </div>
       <button type="button" className="file-button mt-6" onClick={onCleanView}><Icon name="expand" size={16} /> Ẩn luôn thanh điều khiển</button>
-      <p className="field-hint mt-3">Nhấn Esc hoặc chạm hai lần vào khung hình để mở lại. Thanh điều khiển vẫn hiện trong lúc ghi; bản ghi được vẽ riêng nên không dính giao diện.</p>
       <div className="settings-divider" />
       <fieldset>
         <legend className="field-label">Tỉ lệ bản ghi</legend>
@@ -82,7 +79,6 @@ export function OutputSettings({ sourceMode, settings, background, backdropGate,
           ))}
         </div>
       </fieldset>
-      <p className="field-hint mt-3">WebM chất lượng cao · Mục tiêu 60 khung hình/giây · Độ phân giải tự động theo nguồn, tối đa 3840 px ở cạnh dài.</p>
     </section>
   );
 }

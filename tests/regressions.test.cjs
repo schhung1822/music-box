@@ -101,7 +101,7 @@ test("Recording accepts media that never reports a duration", async () => {
     element.duration = Infinity;
     await recorder.start({
       element, title: "Song", artist: "Artist", lyrics: [{ id: "1", time: 0, text: "Line" }], manualLyricIndex: 0,
-      settings: { visualMode: "disc", showLyrics: true, showProgress: true, aspectRatio: "9:16", clipDuration: 15 },
+      settings: { visualMode: "disc", showLyrics: true, showProgress: true, aspectRatio: "9:16", videoFormat: "mp4", clipDuration: 15 },
       video: null, cover: null, play: async () => { await element.play(); return true; }, pause: () => element.pause(),
     });
     recorder = harness.render();

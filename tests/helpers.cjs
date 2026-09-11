@@ -141,8 +141,10 @@ function browserFakes() {
   }
   set("AudioContext", FakeAudioContext);
   const recordings = [];
+  // Chrome/Edge hiện đại ghi được cả hai vùng chứa; từng bài kiểm tra có thể thu hẹp lại.
+  let recordableType = type => type.startsWith("video/webm") || type.startsWith("video/mp4");
   class FakeRecorder {
-    static isTypeSupported(type) { return type.startsWith("video/webm"); }
+    static isTypeSupported(type) { return recordableType(type); }
     constructor(stream, options) { this.stream = stream; this.options = options; this.mimeType = options.mimeType; this.state = "inactive"; recordings.push(this); }
     start(timeslice) { this.timeslice = timeslice; this.state = "recording"; }
     stop() {
@@ -161,6 +163,7 @@ function browserFakes() {
   URL.revokeObjectURL = url => revoked.push(url);
   return {
     canvases, contexts, recordings, revoked, frames, document, FakeAudioContext,
+    onlyRecordable(predicate) { recordableType = predicate; },
     advance(now = performance.now() + 100) { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(now)); },
     restore() { originals.forEach((value, key) => { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; }); URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; },
   };

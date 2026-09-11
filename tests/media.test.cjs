@@ -68,7 +68,7 @@ test("Replacing and removing files revoke object URLs; unmount releases remainin
 });
 
 function recordingOptions(element, extra = {}) {
-  return {element,title:"Song",artist:"Artist",lyrics:[{id:"1",time:0,text:"Line"}],manualLyricIndex:0,settings:{visualMode:"disc",showLyrics:true,showProgress:true,aspectRatio:"9:16",clipDuration:15},video:null,cover:null,play:async()=>{await element.play();return true;},pause:()=>element.pause(),...extra};
+  return {element,title:"Song",artist:"Artist",lyrics:[{id:"1",time:0,text:"Line"}],manualLyricIndex:0,settings:{visualMode:"disc",showLyrics:true,showProgress:true,aspectRatio:"9:16",videoFormat:"mp4",clipDuration:15},video:null,cover:null,play:async()=>{await element.play();return true;},pause:()=>element.pause(),...extra};
 }
 
 test("Recording resolution preserves the visible 1080p crop, keeps exact ratios and bounds very large sources", () => {
@@ -163,6 +163,78 @@ test("Audio with a loading background video waits for native video dimensions be
     assert.equal(harness.render().status, "recording");
     assert.ok(env.canvases[0].width > 1440);
     recorder.stop(); await Promise.resolve();
+  } finally { harness.unmount(); env.restore(); }
+});
+
+test("MP4 asks for H.264 by name before any weaker pairing and reports the codecs actually written", async () => {
+  const { describeCodecs, containerOf } = loadSource("utils/recordingQuality.ts");
+  assert.equal(describeCodecs('video/mp4;codecs="avc1.640028, mp4a.40.2"'), "H.264 + AAC");
+  assert.equal(describeCodecs("video/mp4;codecs=avc1.420015,opus"), "H.264 + Opus");
+  assert.equal(describeCodecs("video/mp4;codecs=vp9,opus"), "VP9 + Opus");
+  assert.equal(describeCodecs("video/webm"), "");
+  assert.equal(containerOf("video/mp4;codecs=avc1"), "mp4");
+  assert.equal(containerOf("video/webm;codecs=vp9,opus"), "webm");
+  const cases = [
+    [() => true, "video/mp4;codecs=avc1.640034,mp4a.40.2"],
+    // Máy thiếu bộ mã hóa AAC (bản Windows N chẳng hạn) vẫn phải giữ hình H.264, chỉ đổi phần tiếng.
+    [type => type.startsWith("video/mp4") && !type.includes("mp4a"), "video/mp4;codecs=avc1.640034,opus"],
+    // Chromium tự chọn cho "video/mp4" trống có thể ra VP9 trong vỏ MP4, nên đó chỉ là nước cuối.
+    [type => type === "video/mp4" || type.startsWith("video/webm"), "video/mp4"],
+  ];
+  for (const [supported, expected] of cases) {
+    const env = browserFakes();
+    const harness = hookHarness();
+    try {
+      env.onlyRecordable(supported);
+      const { useRecorder } = loadSource("hooks/useRecorder.ts", harness.react);
+      let recorder = harness.start(() => useRecorder()); harness.flush();
+      await recorder.start(recordingOptions(new FakeMedia()));
+      assert.equal(env.recordings[0].options.mimeType, expected);
+      recorder = harness.render(); recorder.stop(); await Promise.resolve();
+      assert.equal(harness.render().result.codecs, describeCodecs(expected));
+    } finally { harness.unmount(); env.restore(); }
+  }
+});
+
+test("Chooses the requested container, names the file after it and falls back when the browser cannot write it", async () => {
+  const cases = [
+    { requested: "mp4", supported: () => true, mimePrefix: "video/mp4", format: "mp4" },
+    { requested: "webm", supported: () => true, mimePrefix: "video/webm", format: "webm" },
+    // Chrome/Edge dưới bản 130 chỉ ghi được WebM: bản ghi vẫn phải chạy, chỉ đổi vùng chứa.
+    { requested: "mp4", supported: type => type.startsWith("video/webm"), mimePrefix: "video/webm", format: "webm" },
+    { requested: "webm", supported: type => type.startsWith("video/mp4"), mimePrefix: "video/mp4", format: "mp4" },
+  ];
+  for (const { requested, supported, mimePrefix, format } of cases) {
+    const env = browserFakes();
+    const harness = hookHarness();
+    try {
+      env.onlyRecordable(supported);
+      const { useRecorder } = loadSource("hooks/useRecorder.ts", harness.react);
+      let recorder = harness.start(() => useRecorder()); harness.flush();
+      const element = new FakeMedia();
+      const options = recordingOptions(element);
+      await recorder.start({ ...options, settings: { ...options.settings, videoFormat: requested } });
+      assert.ok(env.recordings[0].options.mimeType.startsWith(mimePrefix), `${requested} → ${env.recordings[0].options.mimeType}`);
+      recorder = harness.render(); recorder.stop(); await Promise.resolve(); recorder = harness.render();
+      assert.equal(recorder.result.format, format);
+      assert.equal(recorder.result.requestedFormat, requested);
+      assert.ok(recorder.result.filename.endsWith("." + format), recorder.result.filename);
+    } finally { harness.unmount(); env.restore(); }
+  }
+});
+
+test("A browser without any supported container reports it instead of starting a recording", async () => {
+  const env = browserFakes();
+  const harness = hookHarness();
+  try {
+    env.onlyRecordable(() => false);
+    const { useRecorder } = loadSource("hooks/useRecorder.ts", harness.react);
+    let recorder = harness.start(() => useRecorder()); harness.flush();
+    await recorder.start(recordingOptions(new FakeMedia()));
+    recorder = harness.render();
+    assert.equal(recorder.status, "idle");
+    assert.match(recorder.error, /MP4/);
+    assert.equal(env.recordings.length, 0);
   } finally { harness.unmount(); env.restore(); }
 });
 
