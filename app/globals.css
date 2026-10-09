@@ -173,7 +173,8 @@
     transform-origin: left center;
     color: #f8faf5;
     font-size: clamp(25px, 2.85vw, 40px);
-    font-weight: 600;
+    /* Mọi câu cùng một độ đậm: Geist là phông biến thiên, chữ đậm hơn thì rộng hơn và câu bị ngắt dòng lại khi đổi câu. */
+    font-weight: 750;
     line-height: 1.42;
     letter-spacing: -1px;
     overflow-wrap: break-word;
@@ -182,7 +183,7 @@
   }
   .lyric-line[data-distance="2"] { filter: blur(.75px); }
   .lyric-line[data-distance="3"] { filter: blur(1.5px); }
-  .active-lyric { transform: scale(1); color: #fff; font-weight: 750; }
+  .active-lyric { transform: scale(1); color: #fff; }
   .lyric-line button { display: block; width: 100%; border: none; padding: 0; background: none; color: inherit; font: inherit; text-align: left; }
   .lyric-line button:hover { color: #d1dfc4; }
   .lyric-line button:focus-visible { outline-offset: 3px; border-radius: 3px; }
@@ -335,6 +336,24 @@
     position: absolute; inset: 0; width: 100%; height: 100%;
   }
   .local-video { object-fit: cover; }
+  /* Thanh thu phóng chỉ hiện khi rê chuột hoặc đang thao tác; màn hình cảm ứng luôn thấy. */
+  .video-zoom {
+    position: absolute; bottom: 12px; left: 50%; z-index: 3;
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 6px 3px 3px; border: 1px solid #ffffff17; border-radius: 999px;
+    background: #0b0d0cc4; backdrop-filter: blur(10px);
+    color: #c5cbbf; font-size: 11px; white-space: nowrap;
+    transform: translateX(-50%); opacity: 0; transition: opacity 180ms ease;
+  }
+  .media-frame:hover .video-zoom, .video-zoom:focus-within { opacity: 1; }
+  @media (hover: none) { .video-zoom { opacity: 1; } }
+  .video-zoom .icon-button { width: 30px; height: 30px; }
+  .video-zoom .range-input { width: clamp(64px, 22vw, 110px); }
+  .video-zoom .range-input::-webkit-slider-thumb { width: 11px; height: 11px; }
+  .video-zoom .range-input::-moz-range-thumb { width: 11px; height: 11px; }
+  .video-zoom-value { min-width: 34px; color: #949d90; font-variant-numeric: tabular-nums; text-align: right; }
+  .video-zoom-preset { margin-left: 2px; border-radius: 999px; padding: 6px 10px; background: #ffffff10; color: #d9e3d0; }
+  .video-zoom-preset:hover { background: #ffffff1c; }
   .youtube-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
   .cover-image, .placeholder-art { overflow: hidden; }
   .placeholder-art { background: linear-gradient(165deg, #253537 0%, #566459 30%, #a49b76 61%, #394d41 100%); }

@@ -1,5 +1,6 @@
 import { outputDimensions, type DisplaySettings, type VideoFormat } from "../types/studio";
 import { getSceneArtSize } from "./renderScene";
+import { clampVideoZoom } from "./media";
 
 export const recordingFrameRate = 60;
 
@@ -72,7 +73,9 @@ export function pickRecordingFormat(preferred: VideoFormat) {
 /** Keep the visible source crop near native resolution, within a practical real-time canvas size. */
 export function getRecordingQuality(settings: DisplaySettings, video: Pick<HTMLVideoElement, "videoWidth" | "videoHeight"> | null) {
   const [baseWidth, baseHeight] = outputDimensions[settings.aspectRatio];
-  const cropSize = settings.visualMode === "video" && video ? Math.min(video.videoWidth, video.videoHeight) : 0;
+  // Thu nhỏ video thì nhiều điểm ảnh nguồn dồn vào khung hơn, phóng to thì ngược lại.
+  const cropSize = settings.visualMode === "video" && video
+    ? Math.min(video.videoWidth, video.videoHeight) / clampVideoZoom(settings.videoZoom, video.videoWidth, video.videoHeight) : 0;
   const nativeScale = Number.isFinite(cropSize) && cropSize > 0 ? cropSize / getSceneArtSize(settings) : 1;
   const scale = Math.min(3840 / Math.max(baseWidth, baseHeight), Math.max(1, nativeScale));
   // Multiples of the ratio's even dimensions preserve the exact ratio and suit video encoders.

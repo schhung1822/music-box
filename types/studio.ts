@@ -18,7 +18,10 @@ export type DisplaySettings = {
   aspectRatio: AspectRatio;
   videoFormat: VideoFormat;
   clipDuration: number;
+  /** Thu phóng video trong khung vuông: 1 là lấp đầy khung (cạnh ngắn vừa khung), nhỏ hơn 1 là thu nhỏ để thấy thêm hình. */
+  videoZoom: number;
 };
+export const maxVideoZoom = 2;
 // Khung dọc dành cho mạng xã hội, khung ngang 4:3 giữ bố cục giống bản desktop.
 export const outputDimensions: Record<AspectRatio, [number, number]> = {
   "9:16": [1080, 1920], "4:3": [1440, 1080],

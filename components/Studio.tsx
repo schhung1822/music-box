@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MusicPlayer } from "./MusicPlayer";
-import { MediaFrame } from "./MediaFrame";
+import { MediaFrame, type VideoSize } from "./MediaFrame";
 import { LyricsPanel } from "./LyricsPanel";
 import { MediaSetup } from "./MediaSetup";
 import { LyricsEditor } from "./LyricsEditor";
@@ -35,9 +35,11 @@ export function Studio() {
   const [lyrics, setLyrics] = useState<LyricLine[]>(initialLyrics);
   const [manualIndex, setManualIndex] = useState(2);
   const [cleanView, setCleanView] = useState(false);
-  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "4:3", videoFormat: "mp4", clipDuration: 30 });
+  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "4:3", videoFormat: "webm", clipDuration: 120, videoZoom: 1 });
   // Nền trang đứng riêng ngoài DisplaySettings vì nó chỉ đổi giao diện, không đi vào bản ghi.
   const [background, setBackground] = useState<BackgroundMode>("default");
+  // Kích thước thật của video, để thanh thu phóng biết mức "vừa khung".
+  const [videoSize, setVideoSize] = useState<VideoSize | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("media");
   const [notice, setNotice] = useState("");
@@ -88,6 +90,8 @@ export function Studio() {
     const fileError = files.replace(kind, file);
     if (!fileError) {
       setNotice(""); local.clearError();
+      // Video mới có tỉ lệ khác, nên bắt đầu lại từ lấp đầy khung.
+      if (kind === "video") setSettings(current => ({ ...current, videoZoom: 1 }));
       if (file && kind !== "cover" && !title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ""));
     }
     return fileError;
@@ -168,7 +172,9 @@ export function Studio() {
               else setMuted(true);
             }}>
             <MediaFrame assets={files.assets} sourceMode={sourceMode} visualMode={settings.visualMode} currentTime={playback.currentTime} isPlaying={playback.isPlaying}
-              audioRef={local.audioRef} videoRef={local.videoRef} coverRef={coverRef} youtubeRef={youtube.containerRef} youtubeLoaded={Boolean(youtubeId)} onError={setNotice} />
+              audioRef={local.audioRef} videoRef={local.videoRef} coverRef={coverRef} youtubeRef={youtube.containerRef} youtubeLoaded={Boolean(youtubeId)} onError={setNotice}
+              videoZoom={settings.videoZoom} videoSize={videoSize} zoomable={!hiddenControls && !recorder.busy} onVideoSize={setVideoSize}
+              onVideoZoomChange={videoZoom => setSettings(current => ({ ...current, videoZoom }))} />
           </MusicPlayer>
           {settings.showLyrics && <LyricsPanel lines={lyrics} activeIndex={activeIndex} onActiveIndexChange={selectLyric} recordingMode={hiddenControls} />}
         </div>

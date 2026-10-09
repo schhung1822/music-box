@@ -37,6 +37,7 @@ export function OutputSettings({ sourceMode, settings, background, backdropGate,
           <button type="button" className={`visual-mode-option${settings.visualMode === "video" ? " selected-mode" : ""}`} aria-pressed={settings.visualMode === "video"} onClick={() => onChange({ ...settings, visualMode: "video" })}><Icon name="video" size={27} /><strong>Video / ảnh bìa</strong><span>Khung vuông, tràn hình</span></button>
           <button type="button" className={`visual-mode-option${settings.visualMode === "disc" ? " selected-mode" : ""}`} aria-pressed={settings.visualMode === "disc"} onClick={() => onChange({ ...settings, visualMode: "disc" })}><Icon name="disc" size={29} /><strong>Đĩa quay</strong><span>Ảnh bìa ở tâm đĩa</span></button>
         </div>
+        <p className="field-hint mt-3">Video bị cắt mép? Rê chuột lên khung video để thu nhỏ cho vừa khung hoặc phóng to. Bản ghi giữ đúng khung bạn thấy.</p>
       </fieldset>
       <div className="settings-divider" />
       <fieldset>

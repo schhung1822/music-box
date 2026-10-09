@@ -449,3 +449,49 @@ test("Portrait crossfades keep actual cue identities across unsorted timestamps 
     assert.ok(later.every(call => call.text !== "Unrelated"));
   } finally { env.restore(); }
 });
+
+test("Video zoom shows the whole video, fills the frame by default and zooms in around the centre", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene, getSceneArtSize } = loadSource("utils/renderScene.ts");
+    const video = new FakeVideo();
+    const settings = { aspectRatio: "4:3", visualMode: "video", showLyrics: true };
+    const art = getSceneArtSize(settings);
+    const draw = videoZoom => {
+      const ctx = fakeContext({ width: 1440, height: 1080 });
+      renderScene(ctx, sceneAt(5, { video, settings: { ...settings, videoZoom } }));
+      return ctx.calls.find(call => call.name === "drawImage").args.slice(1).map(value => Math.round(value * 1e6) / 1e6);
+    };
+    const [, , , , x, y] = draw(1);
+    assert.deepEqual(draw(1), [420, 0, 1080, 1080, x, y, art, art], "100% keeps the old centred square crop");
+    assert.deepEqual(draw(undefined), draw(1), "older settings without a zoom keep filling the frame");
+    const fit = draw(1080 / 1920);
+    assert.deepEqual(fit.slice(0, 4), [0, 0, 1920, 1080], "fitting shows every source pixel");
+    assert.equal(fit[4], x); assert.equal(fit[6], art);
+    assert.ok(Math.abs(fit[5] - (y + (art - art * 1080 / 1920) / 2)) < 1e-9, "letterboxed video is centred vertically");
+    assert.deepEqual(draw(.1), fit, "zooming out stops once the whole video is visible");
+    assert.deepEqual(draw(2), [690, 270, 540, 540, x, y, art, art], "200% crops the centre");
+  } finally { env.restore(); }
+});
+
+test("Recording resolution follows the video zoom so fitted video keeps its detail", () => {
+  const { getRecordingQuality } = loadSource("utils/recordingQuality.ts");
+  const settings = { visualMode: "video", showLyrics: true, aspectRatio: "4:3", clipDuration: 30 };
+  const video = { videoWidth: 1920, videoHeight: 1080 };
+  const filled = getRecordingQuality({ ...settings, videoZoom: 1 }, video);
+  assert.deepEqual(getRecordingQuality(settings, video), filled);
+  assert.ok(getRecordingQuality({ ...settings, videoZoom: 1080 / 1920 }, video).width > filled.width);
+  assert.ok(getRecordingQuality({ ...settings, videoZoom: 2 }, video).width < filled.width);
+});
+
+test("Recorded lyric stack draws every line at one weight, like the live panel", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const lyrics = ["First", "Second", "Third"].map((text, i) => ({ id: String(i), time: i * 10, text }));
+    const ctx = fakeContext({ width: 1440, height: 1080 });
+    renderScene(ctx, sceneAt(10.1, { lyrics, settings: { aspectRatio: "4:3" } }));
+    const weights = new Set(lyricDraws(ctx).map(call => call.font.split(" ")[0]));
+    assert.deepEqual([...weights], ["750"]);
+  } finally { env.restore(); }
+});

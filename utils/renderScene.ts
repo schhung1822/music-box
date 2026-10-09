@@ -1,6 +1,6 @@
 import type { DisplaySettings, LyricLine } from "../types/studio";
 import { activeLyricIndex } from "./lyrics";
-import { formatTime } from "./media";
+import { clampVideoZoom, formatTime } from "./media";
 import { lyricScrollEase, lyricTransitionMs } from "./lyricMotion";
 
 export type Scene = {
@@ -107,12 +107,23 @@ function drawCachedBackdrop(ctx: CanvasRenderingContext2D, width: number, height
   ctx.drawImage(backdrop, 0, 0, width, height);
 }
 
-function drawCrop(ctx: CanvasRenderingContext2D, source: HTMLVideoElement | HTMLImageElement, x: number, y: number, size: number) {
+/**
+ * Vẽ nguồn vào khung vuông, canh giữa. Mức 1 là lấp đầy khung (cắt phần thừa của cạnh dài);
+ * nhỏ hơn thì thu nhỏ để lộ thêm hình, lớn hơn thì phóng to. Chỉ đọc phần nguồn nằm trong khung.
+ */
+function drawCrop(ctx: CanvasRenderingContext2D, source: HTMLVideoElement | HTMLImageElement, x: number, y: number, size: number, requestedZoom = 1) {
   const width = source instanceof HTMLVideoElement ? source.videoWidth : source.naturalWidth;
   const height = source instanceof HTMLVideoElement ? source.videoHeight : source.naturalHeight;
   if (!width || !height) return false;
-  const crop = Math.min(width, height);
-  ctx.drawImage(source, (width - crop) / 2, (height - crop) / 2, crop, crop, x, y, size, size);
+  const zoom = clampVideoZoom(requestedZoom, width, height);
+  const scale = size * zoom / Math.min(width, height);
+  const left = x + (size - width * scale) / 2;
+  const top = y + (size - height * scale) / 2;
+  const sx = Math.max(0, (x - left) / scale);
+  const sy = Math.max(0, (y - top) / scale);
+  const sw = Math.min(width, (x + size - left) / scale) - sx;
+  const sh = Math.min(height, (y + size - top) / scale) - sy;
+  ctx.drawImage(source, sx, sy, sw, sh, left + sx * scale, top + sy * scale, sw * scale, sh * scale);
   return true;
 }
 
@@ -159,7 +170,7 @@ function drawVisual(ctx: CanvasRenderingContext2D, scene: Scene, x: number, y: n
     ctx.beginPath(); ctx.roundRect(x, y, size, size, size * frameRadiusRatio); ctx.fill();
     ctx.restore();
     ctx.beginPath(); ctx.roundRect(x, y, size, size, size * frameRadiusRatio); ctx.clip();
-    if (scene.video && scene.video.readyState >= 2 && drawCrop(ctx, scene.video, x, y, size)) { /* Local video has visual priority. */ }
+    if (scene.video && scene.video.readyState >= 2 && drawCrop(ctx, scene.video, x, y, size, scene.settings.videoZoom)) { /* Local video has visual priority. */ }
     else if (scene.cover && drawCrop(ctx, scene.cover, x, y, size)) { /* The cover is also available for audio-only clips. */ }
     else drawLandscape(ctx, x, y, size);
   }
@@ -447,7 +458,8 @@ function drawLyricStack(ctx: CanvasRenderingContext2D, scene: Scene, metrics: Me
     const distance = Math.abs(entry.index - focus);
     const emphasis = .975 + .025 * Math.max(0, 1 - distance);
     const alpha = lyricAlpha(distance);
-    font(ctx, family, Math.round(600 + 150 * Math.max(0, 1 - distance)), size * emphasis, desktop.lyricTracking * scale * emphasis);
+    // Cùng độ đậm với lúc đo dòng, như giao diện: câu trước/sau không co giãn chữ khi thành câu chính.
+    font(ctx, family, 750, size * emphasis, desktop.lyricTracking * scale * emphasis);
     blur(ctx, lyricBlur(distance) * scale);
     entry.wrapped.forEach((line, n) => {
       const y = start + entry.top + entry.height * (1 - emphasis) / 2 + n * lineHeight * emphasis;

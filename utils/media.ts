@@ -1,4 +1,4 @@
-import type { MediaKind } from "../types/studio";
+import { maxVideoZoom, type MediaKind } from "../types/studio";
 
 export function formatTime(seconds: number) {
   const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
@@ -27,6 +27,17 @@ export function validateMediaFile(file: Pick<File, "name" | "size" | "type">, ki
   if (extensions[kind].test(file.name)) return null;
   if (!/\.[a-z0-9]{1,5}$/i.test(file.name) && allowedTypes[kind].test(type)) return null;
   return `Định dạng này chưa mở được cho ô ${labels[kind]}. Hãy thử một định dạng khác.`;
+}
+
+/** Mức thu phóng để thấy trọn video trong khung vuông: cạnh dài vừa khung thay vì cạnh ngắn. */
+export function fitVideoZoom(width: number, height: number) {
+  return width > 0 && height > 0 ? Math.min(width, height) / Math.max(width, height) : 1;
+}
+
+/** Giới hạn mức thu phóng trong khoảng dùng được; giá trị lạ trở về lấp đầy khung. */
+export function clampVideoZoom(zoom: number | undefined, width: number, height: number) {
+  if (zoom === undefined || !Number.isFinite(zoom)) return 1;
+  return Math.min(maxVideoZoom, Math.max(fitVideoZoom(width, height), zoom));
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

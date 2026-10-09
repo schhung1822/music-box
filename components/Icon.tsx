@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-type IconName = "music" | "headphones" | "arrow" | "help" | "lock" | "video" | "image" | "upload" | "play" | "volume" | "rewind" | "forward" | "lyrics" | "edit" | "sync" | "download" | "close" | "check" | "link" | "sliders" | "expand" | "pause" | "muted" | "disc" | "record" | "stop" | "search" | "backdrop" | "flame" | "waves" | "droplet";
+type IconName = "music" | "headphones" | "arrow" | "help" | "lock" | "video" | "image" | "upload" | "play" | "volume" | "rewind" | "forward" | "lyrics" | "edit" | "sync" | "download" | "close" | "check" | "link" | "sliders" | "expand" | "pause" | "muted" | "disc" | "record" | "stop" | "search" | "backdrop" | "flame" | "waves" | "droplet" | "minus" | "plus";
 
 const paths: Record<IconName, ReactNode> = {
   pause: <><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /></>,
@@ -33,6 +33,8 @@ const paths: Record<IconName, ReactNode> = {
   flame: <path d="M12 3c3 4 5 5.6 5 9a5 5 0 0 1-10 0c0-1.7.8-3.1 2-4.3 0 1.7.8 2.3 1.6 2.3 1 0 1.6-.8 1.4-2.3A9 9 0 0 0 12 3Z" />,
   waves: <path d="M3 7c2-2.2 4-2.2 6 0s4 2.2 6 0 4-2.2 6 0M3 12c2-2.2 4-2.2 6 0s4 2.2 6 0 4-2.2 6 0M3 17c2-2.2 4-2.2 6 0s4 2.2 6 0 4-2.2 6 0" />,
   droplet: <path d="M12 3c3.6 4 6 7.2 6 10a6 6 0 0 1-12 0c0-2.8 2.4-6 6-10Z" />,
+  minus: <path d="M5 12h14" />,
+  plus: <path d="M12 5v14M5 12h14" />,
   sliders: <><path d="M4 7h5m4 0h7M4 17h9m4 0h3" /><circle cx="11" cy="7" r="2" /><circle cx="15" cy="17" r="2" /></>,
 };
 
