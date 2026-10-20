@@ -188,6 +188,8 @@ const MoltenMetal: React.FC<MoltenMetalProps> = ({
       alpha: true,
       premultipliedAlpha: true,
       antialias: false,
+      // Giữ khung đã dựng để bản ghi chép lại được nền bằng drawImage.
+      preserveDrawingBuffer: true,
       dpr: Math.min(window.devicePixelRatio || 1, 2)
     });
 

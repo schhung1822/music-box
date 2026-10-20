@@ -18,6 +18,29 @@ npm run build
 npm start
 ```
 
+## Bản Windows (Electron)
+
+Cùng giao diện và mã với bản web, nhưng chạy trong cửa sổ riêng nên không bị trình duyệt giảm tốc:
+
+- Hoạt ảnh lời, nền WebGL và bộ vẽ bản ghi không bị giảm nhịp khi cửa sổ mất tiêu điểm hoặc bị cửa sổ khác che.
+- **Ghi nền:** đang ghi mà bấm thu nhỏ thì cửa sổ ẩn xuống khay hệ thống (biểu tượng có chấm đỏ) và vẫn ghi đủ 60 khung. Nhấp biểu tượng để mở lại, hoặc chuột phải → *Dừng ghi*. Hết bản ghi cửa sổ tự hiện lại. (Thu nhỏ hẳn theo kiểu Windows làm hệ điều hành ngừng dựng hình, chỉ còn khoảng 1 khung/giây, nên bản desktop chuyển nó thành "ẩn xuống khay".)
+- **Nền động đi vào video:** nền WebGL đang chạy được chép vào từng khung của bản ghi (công tắc *Đưa nền động vào video* ở mục Hiển thị; dùng được cả ở bản web). Tắt công tắc nếu muốn nền tối tĩnh như trước.
+- Bản ghi MP4 dùng bộ mã hóa H.264 phần cứng của máy khi có.
+
+```sh
+npm run desktop        # dựng bản xuất tĩnh vào desktop-web/ rồi mở cửa sổ Electron
+npm run desktop:start  # mở lại mà không dựng lại
+npm run desktop:dist   # đóng gói vào release/: bộ cài NSIS và bản portable (.exe)
+```
+
+Ghi chú:
+
+- Dự án dùng Electron 41 vì các bản mới hơn đòi Node 22, trong khi máy hiện dùng Node 20.
+- `desktop:dist` tự tạo biểu tượng (`desktop/make-icon.cjs`). Việc chỉnh biểu tượng cho tệp .exe được làm bằng `rcedit` (`desktop/after-pack.cjs`) vì gói winCodeSign của electron-builder không giải nén được khi Windows chưa bật Developer Mode.
+- Bộ cài chưa được ký số nên SmartScreen có thể cảnh báo ở lần chạy đầu.
+- Biến môi trường `ELECTRON_RUN_AS_NODE` (VS Code đặt sẵn trong một số terminal) làm `electron.exe` chạy như Node thường; `desktop/start.cjs` đã bỏ biến này.
+- Mã nằm trong `desktop/`: `main.cjs` (cửa sổ, khay, cờ Chromium), `preload.cjs` (cầu nối hẹp), `static-server.cjs` (phục vụ bản xuất tĩnh trên 127.0.0.1).
+
 ## Giao diện hiện tại
 
 - Nền gần đen, không bảng điều khiển, thẻ nội dung hoặc thanh bên cố định.
@@ -54,6 +77,15 @@ Ba nền động chỉ là lớp trang trí sau nội dung:
 - **Không đi vào bản ghi.** Video xuất ra luôn dùng nền tối mặc định, vì bản ghi được vẽ riêng trên canvas 2D trong `utils/renderScene.ts`.
 
 Muốn đổi tông màu nền thì sửa hằng số `palettes` trong `components/StudioBackground.tsx`.
+
+## Vị trí video và hiệu ứng chuyển lời
+
+- **Dời video:** rê chuột lên khung video để hiện thanh vị trí ở đầu khung (← ↑ ↓ → và nút canh giữa; giữ nút để dời liên tục), hoặc kéo thẳng trên video bằng chuột hay ngón tay. Độ dời được giới hạn để mép video không trôi hẳn khỏi khung, và bản ghi giữ đúng vị trí đang thấy. Video vuông ở mức lấp đầy không có chỗ để dời; phóng to hoặc dùng video ngang/dọc để dời được. Chọn video mới thì vị trí về giữa.
+- **Hiệu ứng chuyển lời** (mục Hiển thị, áp dụng cho giao diện và bản ghi, cả khung 4:3 lẫn 9:16):
+  - *Trượt cuộn* — hiệu ứng sẵn có.
+  - *Tô chữ theo nhịp* — câu đang hát mờ, ánh sáng chạy từ trái sang phải qua từng chữ như karaoke, xong trước khi câu kế tiếp bắt đầu. Cần lời có mốc thời gian; lời chưa có mốc hiện sáng cả câu. Vệt tô dùng đồng hồ nội suy để chạy đều chứ không giật theo nhịp cập nhật của media.
+  - *Hiện từng chữ* — mỗi chữ trồi lên và rõ dần từ trạng thái nhòe, chữ sau trễ hơn chữ trước (câu dài thì các chữ sát nhau hơn để cả câu hiện xong trong khoảng một giây).
+  - Các hằng số thời gian nằm trong `utils/lyricMotion.ts` và dùng chung cho CSS lẫn canvas, nên bản ghi giống giao diện.
 
 ## Chế độ ghi hình
 

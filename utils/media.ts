@@ -40,6 +40,17 @@ export function clampVideoZoom(zoom: number | undefined, width: number, height: 
   return Math.min(maxVideoZoom, Math.max(fitVideoZoom(width, height), zoom));
 }
 
+/**
+ * Giới hạn độ dời video để nó không trôi hẳn khỏi khung: mép video chỉ chạm được mép khung bên kia.
+ * Đơn vị là cạnh khung; video càng lớn hơn khung thì càng dời được xa.
+ */
+export function clampVideoOffset(x: number | undefined, y: number | undefined, zoom: number, width: number, height: number): [number, number] {
+  const scale = zoom / Math.min(width, height);
+  const limit = (side: number) => Math.abs(side * scale - 1) / 2;
+  const clamp = (value: number | undefined, max: number) => value === undefined || !Number.isFinite(value) ? 0 : Math.min(max, Math.max(-max, value));
+  return [clamp(x, limit(width)), clamp(y, limit(height))];
+}
+
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

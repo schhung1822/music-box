@@ -1,7 +1,7 @@
 "use client";
 
 import type { BackdropGate } from "../hooks/useBackdropGate";
-import type { AspectRatio, BackgroundMode, DisplaySettings, SourceMode } from "../types/studio";
+import type { AspectRatio, BackgroundMode, DisplaySettings, LyricEffect, SourceMode } from "../types/studio";
 import { Icon } from "./Icon";
 
 type OutputSettingsProps = {
@@ -16,6 +16,13 @@ const backdrops = [
   { value: "waves", icon: "waves", name: "Sóng gradient", note: "Mặt sóng trôi về phía chân trời" },
   { value: "liquid", icon: "droplet", name: "Ether lỏng", note: "Vệt màu loang như mực trong nước" },
 ] as const;
+
+// Ba cách đổi câu lời. Cả giao diện và bản ghi dùng chung, nên cái thấy ở đây là cái được ghi.
+const lyricEffects: { value: LyricEffect; icon: "lyrics" | "sweep" | "sparkle"; name: string; note: string }[] = [
+  { value: "scroll", icon: "lyrics", name: "Trượt cuộn", note: "Câu cũ mờ dần, câu mới trượt vào giữa" },
+  { value: "sweep", icon: "sweep", name: "Tô chữ theo nhịp", note: "Ánh sáng chạy qua từng chữ như karaoke" },
+  { value: "words", icon: "sparkle", name: "Hiện từng chữ", note: "Mỗi chữ trồi lên và rõ dần" },
+];
 
 const ratios: { value: AspectRatio; shape: [number, number]; name: string; lyrics: string }[] = [
   { value: "4:3", shape: [25, 19], name: "Khung ngang", lyrics: "Hiện nhiều câu như trên desktop" },
@@ -52,6 +59,25 @@ export function OutputSettings({ sourceMode, settings, background, backdropGate,
         </div>
       </fieldset>
       {background !== "default" && backdropNotes[backdropGate] && <p className="field-error mt-2">{backdropNotes[backdropGate]}</p>}
+      {background !== "default" && (
+        <div className="switch-row mt-3">
+          <label htmlFor="backdrop-in-video">Đưa nền động vào video<span>Bản ghi chép lại nền đang chạy. Tắt đi nếu máy yếu hoặc video bị giật.</span></label>
+          <input id="backdrop-in-video" className="toggle-input" type="checkbox" role="switch" checked={settings.backdropInVideo} onChange={event => onChange({ ...settings, backdropInVideo: event.target.checked })} />
+        </div>
+      )}
+      <div className="settings-divider" />
+      <fieldset>
+        <legend className="field-label">Hiệu ứng chuyển lời</legend>
+        <div className="effect-grid">
+          {lyricEffects.map(item => (
+            <button key={item.value} type="button" className={`visual-mode-option${(settings.lyricEffect ?? "scroll") === item.value ? " selected-mode" : ""}`}
+              aria-pressed={(settings.lyricEffect ?? "scroll") === item.value} onClick={() => onChange({ ...settings, lyricEffect: item.value })}>
+              <Icon name={item.icon} size={24} /><strong>{item.name}</strong><span>{item.note}</span>
+            </button>
+          ))}
+        </div>
+        {settings.lyricEffect === "sweep" && <p className="field-hint mt-3">Tô chữ cần lời có mốc thời gian (LRC hoặc đồng bộ thủ công). Lời chưa có mốc sẽ hiện sáng cả câu.</p>}
+      </fieldset>
       <div className="settings-divider" />
       <div className="switch-row">
         <label htmlFor="show-lyrics">Hiện lời bài hát<span>Áp dụng cho giao diện và bản ghi.</span></label>

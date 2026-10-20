@@ -3,6 +3,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { DisplaySettings, SourceMode, VideoFormat } from "../types/studio";
 import type { useRecorder } from "../hooks/useRecorder";
+import { isDesktopApp } from "../utils/desktop";
 import { formatTime } from "../utils/media";
 import { recordableFormats, videoFormatLabels } from "../utils/recordingQuality";
 import { Icon } from "./Icon";
@@ -16,6 +17,7 @@ type Props = {
 // Trên máy chủ chưa có MediaRecorder, nên HTML dựng sẵn giữ nguyên phần ghi chú cho tới khi trình duyệt trả lời.
 const keepSnapshot = () => () => {};
 const noSnapshot = () => null;
+const noDesktop = () => false;
 
 const formats: { value: VideoFormat; note: string }[] = [
   { value: "mp4", note: "H.264, mở được gần như mọi nơi" },
@@ -25,6 +27,7 @@ const formats: { value: VideoFormat; note: string }[] = [
 export function RecordingPanel({ recorder, sourceMode, settings, ready, active, currentTime, onSettingsChange, onStart, onPreview }: Props) {
   const preview = useRef<HTMLVideoElement>(null);
   const recordable = useSyncExternalStore(keepSnapshot, recordableFormats, noSnapshot);
+  const desktop = useSyncExternalStore(keepSnapshot, isDesktopApp, noDesktop);
   useEffect(() => { if (!active || recorder.busy) preview.current?.pause(); }, [active, recorder.busy]);
   const fallbackFormat = recordable && !recordable[settings.videoFormat] ? formats.find(format => recordable[format.value])?.value : undefined;
   return (
@@ -35,7 +38,7 @@ export function RecordingPanel({ recorder, sourceMode, settings, ready, active, 
       <select id="clip-duration" className="text-field" disabled={recorder.busy} value={settings.clipDuration} onChange={event => onSettingsChange({ ...settings, clipDuration: Number(event.target.value) })}>
         {[15, 30, 45, 60, 120, 180].map(seconds => <option value={seconds} key={seconds}>{seconds} giây</option>)}
       </select>
-      <p className="field-hint mt-3">Bắt đầu tại {formatTime(currentTime)}; tự dừng khi hết đoạn hoặc hết bài. Giữ tab này mở trong lúc ghi.</p>
+      <p className="field-hint mt-3">Bắt đầu tại {formatTime(currentTime)}; tự dừng khi hết đoạn hoặc hết bài. {desktop ? "Thu nhỏ cửa sổ sẽ ẩn nó xuống khay hệ thống và vẫn ghi tiếp; nhấp biểu tượng ở khay để mở lại." : "Giữ tab này mở trong lúc ghi."}</p>
       <fieldset className="mt-6" disabled={recorder.busy}>
         <legend className="field-label">Định dạng tệp</legend>
         <div className="format-grid">

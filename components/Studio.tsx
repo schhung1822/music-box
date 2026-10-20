@@ -17,7 +17,7 @@ import { useRecorder } from "../hooks/useRecorder";
 import { useBackdropGate } from "../hooks/useBackdropGate";
 import type { BackgroundMode, DisplaySettings, LyricLine, MediaKind, SourceMode } from "../types/studio";
 import { activeLyricIndex, parsePlainLyrics } from "../utils/lyrics";
-import { formatTime } from "../utils/media";
+import { clampVideoOffset, clampVideoZoom, formatTime } from "../utils/media";
 import { youtubeVideoId } from "../utils/youtube";
 
 // Lời minh họa viết riêng cho ứng dụng.
@@ -35,7 +35,7 @@ export function Studio() {
   const [lyrics, setLyrics] = useState<LyricLine[]>(initialLyrics);
   const [manualIndex, setManualIndex] = useState(2);
   const [cleanView, setCleanView] = useState(false);
-  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "4:3", videoFormat: "webm", clipDuration: 120, videoZoom: 1 });
+  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "4:3", videoFormat: "webm", clipDuration: 120, videoZoom: 1, videoOffsetX: 0, videoOffsetY: 0, lyricEffect: "scroll", backdropInVideo: true });
   // Nền trang đứng riêng ngoài DisplaySettings vì nó chỉ đổi giao diện, không đi vào bản ghi.
   const [background, setBackground] = useState<BackgroundMode>("default");
   // Kích thước thật của video, để thanh thu phóng biết mức "vừa khung".
@@ -47,6 +47,7 @@ export function Studio() {
   const main = useRef<HTMLElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const coverRef = useRef<HTMLImageElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   const wasClean = useRef(false);
   const files = useLocalFiles();
   const local = useMediaPlayer(files.assets.audio?.url, files.assets.video?.url, sourceMode === "local", volume, muted);
@@ -90,8 +91,8 @@ export function Studio() {
     const fileError = files.replace(kind, file);
     if (!fileError) {
       setNotice(""); local.clearError();
-      // Video mới có tỉ lệ khác, nên bắt đầu lại từ lấp đầy khung.
-      if (kind === "video") setSettings(current => ({ ...current, videoZoom: 1 }));
+      // Video mới có tỉ lệ khác, nên bắt đầu lại từ lấp đầy khung và canh giữa.
+      if (kind === "video") setSettings(current => ({ ...current, videoZoom: 1, videoOffsetX: 0, videoOffsetY: 0 }));
       if (file && kind !== "cover" && !title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ""));
     }
     return fileError;
@@ -126,6 +127,7 @@ export function Studio() {
     setCleanView(false);
     void recorder.start({
       element, title, artist, lyrics, manualLyricIndex: manualIndex, settings,
+      getBackdrop: () => backdropRef.current?.querySelector("canvas") ?? null,
       video: files.assets.video ? local.videoRef.current : null,
       cover: files.assets.cover ? coverRef.current : null,
       play: local.play, pause: local.pause,
@@ -160,7 +162,7 @@ export function Studio() {
 
   return (
     <div className={`studio-shell minimal-studio${hiddenControls ? " recording-mode" : ""}`}>
-      <StudioBackground mode={background} gate={backdropGate} paused={recorder.busy} />
+      <StudioBackground mode={background} gate={backdropGate} containerRef={backdropRef} paused={recorder.busy && !settings.backdropInVideo} />
       <main ref={main} id="main-content" className="studio-main" tabIndex={-1} aria-label="Không gian âm nhạc"
         onDoubleClick={hiddenControls ? () => setCleanView(false) : undefined}>
         <h1 className="sr-only">Không gian âm nhạc của bạn</h1>
@@ -174,9 +176,17 @@ export function Studio() {
             <MediaFrame assets={files.assets} sourceMode={sourceMode} visualMode={settings.visualMode} currentTime={playback.currentTime} isPlaying={playback.isPlaying}
               audioRef={local.audioRef} videoRef={local.videoRef} coverRef={coverRef} youtubeRef={youtube.containerRef} youtubeLoaded={Boolean(youtubeId)} onError={setNotice}
               videoZoom={settings.videoZoom} videoSize={videoSize} zoomable={!hiddenControls && !recorder.busy} onVideoSize={setVideoSize}
-              onVideoZoomChange={videoZoom => setSettings(current => ({ ...current, videoZoom }))} />
+              onVideoZoomChange={videoZoom => setSettings(current => {
+                // Thu nhỏ thì video có ít chỗ dời hơn, nên kéo độ dời về trong giới hạn mới.
+                if (!videoSize) return { ...current, videoZoom };
+                const [videoOffsetX, videoOffsetY] = clampVideoOffset(current.videoOffsetX, current.videoOffsetY, clampVideoZoom(videoZoom, ...videoSize), ...videoSize);
+                return { ...current, videoZoom, videoOffsetX, videoOffsetY };
+              })}
+              videoOffset={[settings.videoOffsetX, settings.videoOffsetY]}
+              onVideoOffsetChange={(videoOffsetX, videoOffsetY) => setSettings(current => ({ ...current, videoOffsetX, videoOffsetY }))} />
           </MusicPlayer>
-          {settings.showLyrics && <LyricsPanel lines={lyrics} activeIndex={activeIndex} onActiveIndexChange={selectLyric} recordingMode={hiddenControls} />}
+          {settings.showLyrics && <LyricsPanel lines={lyrics} activeIndex={activeIndex} onActiveIndexChange={selectLyric} recordingMode={hiddenControls}
+            effect={settings.lyricEffect} isPlaying={playback.isPlaying} getTime={playback.getCurrentTime} />}
         </div>
       </main>
       {error && !hiddenControls && <div className="status-notice" role="alert"><p>{error}</p><button type="button" className="icon-button" aria-label="Đóng thông báo" onClick={() => { setNotice(""); playback.clearError(); }}><Icon name="close" size={15} /></button></div>}

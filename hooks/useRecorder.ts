@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { renderScene, type Scene } from "../utils/renderScene";
 import { containerOf, createFramePacer, describeCodecs, getRecordingQuality, pickRecordingFormat } from "../utils/recordingQuality";
+import { isDesktopApp } from "../utils/desktop";
 import type { VideoFormat } from "../types/studio";
 
-type StartOptions = Omit<Scene, "currentTime" | "duration" | "reducedMotion"> & {
+type StartOptions = Omit<Scene, "currentTime" | "duration" | "reducedMotion" | "backdrop"> & {
   element: HTMLMediaElement;
+  /** Trả về canvas của nền động đang chạy; hỏi lại mỗi khung vì nền có thể dựng lại giữa chừng. */
+  getBackdrop?: () => HTMLCanvasElement | null;
   play: () => Promise<boolean>;
   pause: () => void;
   onComplete?: () => void;
@@ -140,7 +143,8 @@ export function useRecorder() {
       const fontFamily = typeof getComputedStyle === "function" && document.body ? getComputedStyle(document.body).fontFamily : undefined;
       await document.fonts?.ready;
       if (generation.current.value !== request) throw new DOMException("Đã hủy", "AbortError");
-      const draw = (animationTime = performance.now()) => renderScene(ctx, { ...options, fontFamily, animationTime, currentTime: options.element.currentTime, duration: Number.isFinite(options.element.duration) ? options.element.duration : 0, reducedMotion });
+      const withBackdrop = options.settings.backdropInVideo && options.getBackdrop;
+      const draw = (animationTime = performance.now()) => renderScene(ctx, { ...options, fontFamily, animationTime, backdrop: withBackdrop ? options.getBackdrop?.() : null, currentTime: options.element.currentTime, duration: Number.isFinite(options.element.duration) ? options.element.duration : 0, reducedMotion });
       draw();
       const videoStream = canvas.captureStream(frameRate);
       stream.current = new MediaStream([...videoStream.getVideoTracks(), ...audio.destination.stream.getAudioTracks().map(track => track.clone())]);
@@ -171,14 +175,20 @@ export function useRecorder() {
       };
       const onEnded = () => stop();
       const onMediaError = () => { failed = true; setError("Tệp phát bị lỗi trong lúc ghi. Hãy thử một tệp khác."); stop(); };
+      // Bản desktop không bị giảm tốc khi thu nhỏ cửa sổ nên không cần dừng; trình duyệt thì có.
+      const desktop = isDesktopApp();
       const onHidden = () => {
-        if (document.hidden) { setError("Đã dừng ghi khi rời tab để tránh mất khung hình."); stop(); }
+        if (document.hidden && !desktop) { setError("Đã dừng ghi khi rời tab để tránh mất khung hình."); stop(); }
       };
       options.element.addEventListener("ended", onEnded);
       options.element.addEventListener("pause", onEnded);
       options.element.addEventListener("error", onMediaError);
       document.addEventListener("visibilitychange", onHidden);
+      // Bản desktop: báo tiến trình chính để thu nhỏ cửa sổ lúc đang ghi thành "ẩn xuống khay", và nhận lệnh dừng từ khay.
+      let stopFromTray = () => {};
       disposeSession.current = () => {
+        stopFromTray();
+        window.desktop?.setRecording(false);
         options.element.removeEventListener("ended", onEnded);
         options.element.removeEventListener("pause", onEnded);
         options.element.removeEventListener("error", onMediaError);
@@ -193,6 +203,7 @@ export function useRecorder() {
       let lastElapsed = 0;
       mediaRecorder.start(250);
       setStatus("recording");
+      if (window.desktop) { window.desktop.setRecording(true); stopFromTray = window.desktop.onStopRequest(stop); }
       const tick = (now: number) => {
         if (mediaRecorder.state === "inactive") return;
         if (shouldDraw(now)) {

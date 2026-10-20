@@ -495,3 +495,133 @@ test("Recorded lyric stack draws every line at one weight, like the live panel",
     assert.deepEqual([...weights], ["750"]);
   } finally { env.restore(); }
 });
+
+test("A live WebGL backdrop is copied into the recording, cropped to cover, and its failure never breaks a frame", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const { outputDimensions } = loadSource("types/studio.ts");
+    const [width, height] = outputDimensions["4:3"];
+    const backdrop = { width: 1920, height: 1080 };
+    const scene = sceneAt(5, { settings: { aspectRatio: "4:3" }, reducedMotion: true });
+    const ctx = fakeContext({ width, height });
+    renderScene(ctx, { ...scene, backdrop });
+    const copies = ctx.calls.filter(call => call.name === "drawImage" && call.args[0] === backdrop);
+    assert.equal(copies.length, 1);
+    // Nền 16:9 vào khung 4:3: giữ nguyên chiều cao, cắt đều hai bên.
+    assert.deepEqual(copies[0].args.slice(1), [240, 0, 1440, 1080, 0, 0, 1440, 1080]);
+    // Không có nền động thì giữ nền tối tĩnh; canvas chưa có kích thước cũng bị bỏ qua.
+    const plain = fakeContext({ width, height });
+    renderScene(plain, scene);
+    assert.equal(plain.calls.filter(call => call.name === "drawImage" && call.args[0] === backdrop).length, 0);
+    const empty = fakeContext({ width, height });
+    renderScene(empty, { ...scene, backdrop: { width: 0, height: 0 } });
+    assert.equal(empty.calls.filter(call => call.name === "drawImage").length, 0);
+    const broken = fakeContext({ width, height });
+    broken.drawImage = () => { throw new Error("context lost"); };
+    assert.doesNotThrow(() => renderScene(broken, { ...scene, backdrop }));
+  } finally { env.restore(); }
+});
+
+test("Video offsets move the visible crop, stay inside the frame and fall back to centred for bad values", () => {
+  const { clampVideoOffset } = loadSource("utils/media.ts");
+  // Video 16:9 lấp đầy khung vuông: chỉ dời ngang được, tối đa (16/9 - 1) / 2 cạnh khung.
+  const [x, y] = clampVideoOffset(5, 5, 1, 1920, 1080);
+  assert.ok(Math.abs(x - (1920 / 1080 - 1) / 2) < 1e-9); assert.equal(y, 0);
+  assert.deepEqual(clampVideoOffset(-5, 0, 1, 1920, 1080).map(v => Math.round(v * 1000) / 1000), [-.389, 0]);
+  // Thu nhỏ cho vừa khung thì ngược lại: dời dọc được, ngang thì không.
+  const fit = 1080 / 1920;
+  const [fx, fy] = clampVideoOffset(1, 1, fit, 1920, 1080);
+  assert.ok(Math.abs(fx) < 1e-9); assert.ok(Math.abs(fy - (1 - fit) / 2) < 1e-9);
+  assert.deepEqual(clampVideoOffset(Number.NaN, undefined, 1.5, 1920, 1080), [0, 0]);
+
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const { outputDimensions } = loadSource("types/studio.ts");
+    const video = new FakeVideo(); video.readyState = 4;
+    const [width, height] = outputDimensions["4:3"];
+    const crop = offsetX => {
+      const ctx = fakeContext({ width, height });
+      renderScene(ctx, sceneAt(5, { video, reducedMotion: true, settings: { visualMode: "video", aspectRatio: "4:3", videoZoom: 1, videoOffsetX: offsetX, videoOffsetY: 0 } }));
+      return ctx.calls.find(call => call.name === "drawImage" && call.args[0] === video).args;
+    };
+    const centred = crop(0);
+    const shifted = crop(.1);
+    // Video dời sang phải 0,1 cạnh khung: phần nguồn hiện trong khung lùi về trái đúng 0,1 × 1080 điểm ảnh.
+    assert.ok(Math.abs((centred[1] - shifted[1]) - 108) < 1e-6);
+    assert.equal(shifted[2], centred[2]);
+    // Độ dời quá lớn bị giữ ở mép: không hiện khoảng trống bên trái video.
+    assert.equal(crop(9)[1], 0);
+  } finally { env.restore(); }
+});
+
+test("Lyric effect helpers: sweep follows cue timing, word reveal is bounded and the smooth clock never runs ahead", () => {
+  const { lyricSweep, sweepEdge, wordDelayMs, wordsDoneMs, wordProgress, createSmoothClock } = loadSource("utils/lyricMotion.ts");
+  const lines = [{ id: "a", time: 10, text: "Một hai ba bốn" }, { id: "b", time: 20, text: "Câu sau" }, { id: "c", time: null, text: "Không mốc" }];
+  assert.equal(lyricSweep(lines, 0, 9), 0);
+  assert.ok(lyricSweep(lines, 0, 11) > 0 && lyricSweep(lines, 0, 11) < 1);
+  assert.equal(lyricSweep(lines, 0, 19.9), 1);
+  assert.equal(lyricSweep(lines, 2, 0), 1);
+  assert.equal(lyricSweep(lines, 9, 0), 1);
+  // Câu cuối không có câu sau: vẫn tô xong trong thời gian hữu hạn.
+  assert.equal(lyricSweep(lines, 1, 40), 1);
+  assert.deepEqual(sweepEdge(0).map(v => Math.round(v * 100) / 100), [-.05, 0]);
+  assert.deepEqual(sweepEdge(1).map(v => Math.round(v * 100) / 100), [1, 1.05]);
+  // Câu dài: các chữ sát nhau hơn, cả câu vẫn hiện xong trong khoảng 1,2 giây.
+  assert.equal(wordDelayMs(1, 3), 70);
+  assert.ok(wordDelayMs(1, 40) < 70);
+  assert.ok(wordsDoneMs(40) < 1300);
+  assert.equal(wordProgress(0, 0, 5), 0);
+  assert.equal(wordProgress(5000, 4, 5), 1);
+  const clock = createSmoothClock();
+  assert.equal(clock(5, 1000), 5);
+  assert.ok(Math.abs(clock(5, 1050) - 5.05) < 1e-9);
+  assert.equal(clock(5, 5000), 5.1);
+  assert.equal(clock(7, 5010), 7);
+  assert.equal(clock(7, 5500, false), 7);
+});
+
+test("The sweep effect dims unsung text and fills with a soft edge; word reveal draws only the words that have started", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const { outputDimensions } = loadSource("types/studio.ts");
+    const text = "Một hai ba bốn năm";
+    const lyrics = [{ id: "1", time: 0, text }, { id: "2", time: 10, text: "Câu sau" }];
+    for (const ratio of ["4:3", "9:16"]) {
+      const [width, height] = outputDimensions[ratio];
+      const draw = (effect, currentTime) => {
+        const ctx = fakeContext({ width, height });
+        let made = 0;
+        ctx.createLinearGradient = () => { made++; return { addColorStop() {} }; };
+        renderScene(ctx, sceneAt(currentTime, { lyrics, settings: { aspectRatio: ratio, lyricEffect: effect } }));
+        return { ctx, made, lyric: lyricDraws(ctx).filter(call => text.includes(call.text) || call.text === text) };
+      };
+      // Chưa tô: chữ mờ còn 36% so với hiệu ứng cuộn ở cùng thời điểm. Giữa chừng: dải chuyển màu. Tô xong: sáng như bình thường.
+      const alphaOf = fill => Number(/([\d.]+)\)$/.exec(fill)[1]);
+      if (ratio === "4:3") {
+        // Khung dọc: câu mới còn đang mờ dần vào đúng lúc bắt đầu nên chưa có gì để so.
+        const plain = draw("scroll", 0).lyric.filter(call => call.font.startsWith("750"));
+        const before = draw("sweep", 0).lyric.filter(call => call.font.startsWith("750"));
+        assert.ok(before.length && before.every(call => typeof call.fill === "string"));
+        assert.ok(Math.abs(alphaOf(before[0].fill) / alphaOf(plain[0].fill) - .36) < .01);
+      }
+      const middle = draw("sweep", 1.5);
+      assert.ok(middle.lyric.some(call => typeof call.fill === "object"));
+      const after = draw("sweep", 9).lyric;
+      assert.ok(after.every(call => typeof call.fill === "string"));
+      assert.equal(after[0].fill, draw("scroll", 9).lyric[0].fill);
+      // Hiệu ứng cuộn mặc định không đụng tới dải chuyển màu của lời.
+      assert.equal(draw("scroll", 1.5).lyric.some(call => typeof call.fill === "object"), false);
+
+      const early = draw("words", .2).lyric.map(call => call.text);
+      assert.ok(early.includes("Một") && early.includes("hai"));
+      assert.equal(early.includes("năm"), false);
+      assert.equal(early.includes(text), false);
+      const settled = draw("words", 3).lyric.map(call => call.text);
+      assert.ok(settled.includes(text) || settled.join(" ").includes("năm"));
+      assert.equal(settled.includes("Một"), false);
+    }
+  } finally { env.restore(); }
+});

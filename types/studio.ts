@@ -5,6 +5,8 @@ export type BackgroundMode = "default" | "molten" | "waves" | "liquid";
 export type AspectRatio = "9:16" | "4:3";
 // Định dạng tệp xuất ra: MP4 (H.264 + AAC) mở được ở hầu hết nơi, WebM (VP9 + Opus) nén tốt hơn.
 export type VideoFormat = "mp4" | "webm";
+// Cách lời hát chuyển câu: trượt cuộn (mặc định), tô sáng chạy theo nhịp hát, hoặc hiện từng chữ.
+export type LyricEffect = "scroll" | "sweep" | "words";
 export type MediaKind = "video" | "audio" | "cover";
 export type LocalAsset = { file: File; url: string };
 export type LocalAssets = Partial<Record<MediaKind, LocalAsset>>;
@@ -20,6 +22,12 @@ export type DisplaySettings = {
   clipDuration: number;
   /** Thu phóng video trong khung vuông: 1 là lấp đầy khung (cạnh ngắn vừa khung), nhỏ hơn 1 là thu nhỏ để thấy thêm hình. */
   videoZoom: number;
+  /** Dời video trong khung, tính theo cạnh khung: dương là sang phải/xuống dưới, 0 là canh giữa. */
+  videoOffsetX: number;
+  videoOffsetY: number;
+  lyricEffect: LyricEffect;
+  /** Đưa nền động đang chạy vào video. Chỉ có tác dụng khi chọn một nền WebGL. */
+  backdropInVideo: boolean;
 };
 export const maxVideoZoom = 2;
 // Khung dọc dành cho mạng xã hội, khung ngang 4:3 giữ bố cục giống bản desktop.

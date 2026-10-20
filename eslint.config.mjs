@@ -15,15 +15,17 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["tests/**/*.cjs"],
-    // The dependency-free Node test runner and TypeScript loader are CommonJS.
+    files: ["tests/**/*.cjs", "desktop/**/*.cjs"],
+    // The dependency-free Node test runner, TypeScript loader and Electron entry points are CommonJS.
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    "desktop-web/**",
     "out/**",
+    "release/**",
     "build/**",
     "next-env.d.ts",
   ]),

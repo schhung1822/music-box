@@ -2,3 +2,4 @@
 require("./core.test.cjs");
 require("./media.test.cjs");
 require("./regressions.test.cjs");
+require("./desktop.test.cjs");

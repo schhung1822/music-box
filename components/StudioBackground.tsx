@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Component, type ReactNode } from "react";
+import { Component, type ReactNode, type Ref } from "react";
 import type { BackdropGate } from "../hooks/useBackdropGate";
 import type { BackgroundMode } from "../types/studio";
 
@@ -31,14 +31,16 @@ class BackdropBoundary extends Component<{ children: ReactNode }, { failed: bool
 type StudioBackgroundProps = {
   mode: BackgroundMode;
   gate: BackdropGate;
-  /** Tắt hẳn nền lúc ghi hình để nhường GPU cho canvas dựng bản ghi. */
+  /** Tắt hẳn nền lúc ghi hình để nhường GPU cho canvas dựng bản ghi, trừ khi nền được đưa vào video. */
   paused: boolean;
+  /** Để bản ghi lấy được canvas WebGL của nền đang chạy. */
+  containerRef?: Ref<HTMLDivElement>;
 };
 
-export function StudioBackground({ mode, gate, paused }: StudioBackgroundProps) {
+export function StudioBackground({ mode, gate, paused, containerRef }: StudioBackgroundProps) {
   if (mode === "default" || paused || gate !== "ready") return null;
   return (
-    <div className="studio-backdrop" aria-hidden="true">
+    <div ref={containerRef} className="studio-backdrop" aria-hidden="true">
       {/* Đổi nền là dựng lại từ đầu, đồng thời xóa trạng thái hỏng của lần trước. */}
       <BackdropBoundary key={mode}>
         {mode === "molten" && <MoltenMetal

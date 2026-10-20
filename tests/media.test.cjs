@@ -346,3 +346,26 @@ test("YouTube creates a player only in its own mode, controls playback and destr
     assert.equal(instances[0].destroyed,true); assert.equal(player.ready,false);
   } finally { harness.unmount(); env.restore(); }
 });
+
+test("The desktop app keeps recording when the window is hidden and reports recording state to the shell", async () => {
+  const env = browserFakes();
+  const harness = hookHarness();
+  try {
+    const states = [];
+    let stopFromShell = null;
+    window.desktop = { isDesktop: true, platform: "win32", version: "0", setRecording: active => states.push(active), onStopRequest: callback => { stopFromShell = callback; return () => { stopFromShell = null; }; } };
+    const { useRecorder } = loadSource("hooks/useRecorder.ts", harness.react);
+    let recorder = harness.start(() => useRecorder()); harness.flush();
+    const element = new FakeMedia();
+    await recorder.start(recordingOptions(element));
+    assert.deepEqual(states, [true]);
+    env.document.hidden = true; env.document.dispatchEvent(new Event("visibilitychange"));
+    await Promise.resolve(); recorder = harness.render();
+    assert.equal(recorder.status, "recording"); assert.equal(recorder.error, "");
+    // "Dừng ghi" từ menu khay hệ thống.
+    stopFromShell();
+    await Promise.resolve(); recorder = harness.render();
+    assert.equal(recorder.status, "idle"); assert.ok(recorder.result);
+    assert.deepEqual(states, [true, false]); assert.equal(stopFromShell, null);
+  } finally { delete window.desktop; harness.unmount(); env.restore(); }
+});
