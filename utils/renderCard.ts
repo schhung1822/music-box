@@ -1,6 +1,7 @@
 import { outputDimensions, type LyricLine } from "../types/studio";
 import { card, cardAspectRatio, cardCredit, cardBackdropBlur, cardBackdropShade, cardOffsets, cardRecordingPlacement } from "./cardLayout";
-import { cardLyricAlpha, cardLyricEmphasis, createLyricSpring, lyricTopAt, type LyricSpring } from "./cardMotion";
+import { cardLyricAlpha, cardLyricEmphasis } from "./cardMotion";
+import { createFocusTracker, lyricTopAt } from "./lyricSpring";
 import { wordsDoneMs } from "./lyricMotion";
 import { fitLyricScale } from "./lyricFit";
 import { activeLyricIndex } from "./lyrics";
@@ -162,34 +163,7 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) 
 type Entry = { index: number; wrapped: string[]; top: number; height: number; fit: number; lineHeight: number; baseline: number };
 const stacks = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; key: string; entries: Entry[] }>();
 
-const springs = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; spring: LyricSpring }>();
-
-/**
- * Tiêu điểm cuộn của lời (utils/cardMotion.ts): chỉ số câu dạng số thực, bám theo `index` bằng lò xo.
- * `travel` là quãng trượt tính theo pixel thẻ. Khi ghi, lò xo sống cùng khung vẽ và theo đồng hồ `animationTime`;
- * dựng cố định (không có `animationTime`) thì phát lại các mốc câu từ đầu để cùng mốc thời gian luôn ra cùng kết quả.
- */
-function cardFocus(ctx: CanvasRenderingContext2D, scene: Scene, index: number, travel: (from: number, to: number) => number) {
-  const now = scene.animationTime;
-  if (now === undefined) {
-    if (scene.reducedMotion) return index;
-    const cues = scene.lyrics.map((line, i) => ({ time: line.time, index: i }))
-      .filter((cue): cue is { time: number; index: number } => cue.time !== null && cue.time <= scene.currentTime)
-      .sort((a, b) => a.time - b.time || a.index - b.index);
-    if (!cues.length) return index;
-    const spring = createLyricSpring(-1);
-    for (const cue of cues) spring.update(cue.index, cue.time * 1000, travel);
-    return spring.update(index, scene.currentTime * 1000, travel);
-  }
-  let state = springs.get(ctx);
-  // Bộ lời mới: bắt đầu thẳng ở câu hiện tại, không trượt từ bộ lời cũ sang.
-  if (!state || state.lyrics !== scene.lyrics) {
-    state = { lyrics: scene.lyrics, spring: createLyricSpring(index) };
-    springs.set(ctx, state);
-  }
-  if (scene.reducedMotion) { state.spring.jump(index); return index; }
-  return state.spring.update(index, now, travel);
-}
+const trackFocus = createFocusTracker();
 
 /**
  * Lời chạy từ dưới lên: các câu xếp thành một cột liên tục và cột trượt lên để câu đang hát đứng sát mép trên
@@ -227,7 +201,7 @@ function drawCardLyrics(ctx: CanvasRenderingContext2D, scene: Scene, x: number, 
   if (!entries.length) return;
 
   const topOf = (i: number) => i < entries.length ? entries[i].top : entries[entries.length - 1].top + entries[entries.length - 1].height + gap;
-  const focus = cardFocus(ctx, scene, index, (from, to) => Math.abs(lyricTopAt(topOf, to) - lyricTopAt(topOf, from)) / scale);
+  const focus = trackFocus(ctx, scene, index, (from, to) => Math.abs(lyricTopAt(topOf, to) - lyricTopAt(topOf, from)) / scale);
   // Trước câu đầu tiên chưa có câu nào đang hát: câu đầu vẫn nằm ở mép trên, ở vai trò câu kế tiếp.
   const origin = viewTop + pad - lyricTopAt(topOf, focus);
 

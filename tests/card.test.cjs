@@ -176,7 +176,7 @@ test("The source credit is signed at the bottom of the card, centred, in bold it
 });
 
 test("Lyric spring: starts gently, never overshoots, keeps its speed when retargeted, and ignores frame rate", () => {
-  const { springStep, createLyricSpring, lyricSpringOmega, lyricSpringRate } = loadSource("utils/cardMotion.ts");
+  const { springStep, createLyricSpring, lyricSpringOmega, lyricSpringRate } = loadSource("utils/lyricSpring.ts");
   // Từ trạng thái nghỉ: không bật ngay với tốc độ lớn nhất như easing cố định.
   let [value, velocity] = [0, 0];
   const steps = [];
@@ -259,4 +259,41 @@ test("The static card layer (backdrop, glass, shadow, title, credit) is painted 
     renderCardScene(ctx, sceneAt(20, { animationTime: 999, title: "Tên khác" }));
     assert.equal(layers.length, 2, "a new title rebuilds the layer");
   } finally { if (had) globalThis.OffscreenCanvas = previous; else delete globalThis.OffscreenCanvas; env.restore(); }
+});
+
+test("Classic lyrics use the same spring: landscape stack glides from rest, portrait crossfade eases in", () => {
+  const env = browserFakes();
+  try {
+    const { renderScene } = loadSource("utils/renderScene.ts");
+    const { lyricGlideEase } = loadSource("utils/lyricSpring.ts");
+    assert.equal(lyricGlideEase(0), 0);
+    assert.equal(lyricGlideEase(1), 1);
+    assert.ok(lyricGlideEase(.05) < .08 && lyricGlideEase(.5) > .85, "starts softly, then settles quickly");
+    const words = n => Array.from({ length: n }, (_, i) => `từ${i % 10}`).join(" ");
+    const track = (previous, ratio, size) => {
+      const lyrics = [{ id: "a", time: 0, text: previous }, { id: "b", time: 10, text: "Câu hai" }, { id: "c", time: 20, text: "Câu ba" }];
+      const ctx = fakeContext(size);
+      ctx.measureText = value => ({ width: Array.from(value).length * 18 });
+      const ys = [];
+      for (let frame = 0; frame < 90; frame++) {
+        ctx.calls.length = 0;
+        const currentTime = frame === 0 ? 9.9 : 10 + (frame - 1) * .016;
+        renderScene(ctx, { ...sceneAt(currentTime, { lyrics, animationTime: frame * 16, reducedMotion: false }), variant: "classic", settings: { visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: ratio, clipDuration: 30 } });
+        const call = texts(ctx).find(item => item.text === "Câu hai");
+        ys.push(call ? call.y : NaN);
+      }
+      return ys;
+    };
+    const short = track("Câu một", "4:3", { width: 1440, height: 1080 });
+    const tall = track(words(12), "4:3", { width: 1440, height: 1080 });
+    for (const ys of [short, tall]) {
+      assert.ok(ys.every(Number.isFinite));
+      assert.ok(ys.slice(1).every((y, i) => y <= ys[i] + 1e-6), "the incoming line only moves up");
+      const moves = ys.slice(1).map((y, i) => ys[i] - y);
+      assert.equal(moves[0], 0, "no jump on the frame the new lyric starts");
+      assert.ok(moves[1] > 0 && moves[1] < moves[5] / 2, "starts gently, then speeds up");
+    }
+    const settledAt = ys => ys.findIndex((y, i) => i > 2 && Math.abs(y - ys.at(-1)) < .5);
+    assert.ok(settledAt(tall) > settledAt(short), "a tall lyric takes longer to slide away");
+  } finally { env.restore(); }
 });

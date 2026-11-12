@@ -1,7 +1,8 @@
 import type { DisplaySettings, LyricLine, StudioVariant } from "../types/studio";
 import { activeLyricIndex } from "./lyrics";
 import { clampVideoOffset, clampVideoZoom, formatTime } from "./media";
-import { createSmoothClock, lyricScrollEase, lyricSweep, lyricTransitionMs, sweepEdge, wordProgress, wordsDoneMs } from "./lyricMotion";
+import { createSmoothClock, lyricSweep, lyricTransitionMs, sweepEdge, wordProgress, wordsDoneMs } from "./lyricMotion";
+import { cardTravelReference, createFocusTracker, lyricGlideEase, lyricTopAt } from "./lyricSpring";
 
 export type Scene = {
   title: string; artist: string; lyrics: LyricLine[]; manualLyricIndex: number;
@@ -246,45 +247,14 @@ function lyricBlur(distance: number) {
 }
 export const white = (alpha: number) => `rgba(255, 255, 255, ${Math.round(alpha * 1000) / 1000})`;
 
-// Timed keyframes keep deterministic renders continuous; the recorder's monotonic clock
-// continues those transitions smoothly even when the media clock repeats a timestamp.
-type LyricKeyframe = { time: number; index: number; from: number };
-const lyricTimelines = new WeakMap<LyricLine[], LyricKeyframe[]>();
-const liveMotion = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; index: number; from: number; started: number }>();
+const trackFocus = createFocusTracker();
 
-function timelineFocus(scene: Scene, index: number) {
-  if (scene.reducedMotion || index < 0) return index;
-  let timeline = lyricTimelines.get(scene.lyrics);
-  if (!timeline) {
-    const cues = scene.lyrics.map((line, i) => ({ time: line.time, index: i }))
-      .filter((cue): cue is { time: number; index: number } => cue.time !== null)
-      .sort((a, b) => a.time - b.time || a.index - b.index);
-    timeline = [];
-    for (const cue of cues) {
-      const previous = timeline[timeline.length - 1];
-      const from = previous ? mix(previous.from, previous.index, lyricScrollEase((cue.time - previous.time) / transitionSeconds)) : -1;
-      timeline.push({ ...cue, from });
-    }
-    lyricTimelines.set(scene.lyrics, timeline);
-  }
-  const cue = timeline.find(entry => entry.index === index);
-  return cue ? mix(cue.from, index, lyricScrollEase((scene.currentTime - cue.time) / transitionSeconds)) : index;
-}
-
-export function lyricFocus(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
-  const now = scene.animationTime;
-  if (now === undefined) return timelineFocus(scene, index);
-  let motion = liveMotion.get(ctx);
-  if (!motion || motion.lyrics !== scene.lyrics || scene.reducedMotion) {
-    motion = { lyrics: scene.lyrics, index, from: index, started: now - lyricTransitionMs };
-    liveMotion.set(ctx, motion);
-  }
-  const focus = mix(motion.from, motion.index, lyricScrollEase((now - motion.started) / lyricTransitionMs));
-  if (motion.index !== index) {
-    motion = { lyrics: scene.lyrics, index, from: focus, started: now };
-    liveMotion.set(ctx, motion);
-  }
-  return scene.reducedMotion ? index : focus;
+/**
+ * Tiêu điểm cuộn của vùng lời ở khung ngang: chỉ số câu dạng số thực, bám theo câu đang hát bằng lò xo (utils/lyricSpring.ts).
+ * `travel` là quãng trượt giữa hai tiêu điểm tính theo pixel giao diện, để câu trước càng cao thì trượt càng chậm.
+ */
+export function lyricFocus(ctx: CanvasRenderingContext2D, scene: Scene, index: number, travel: (from: number, to: number) => number) {
+  return trackFocus(ctx, scene, index, travel);
 }
 
 // ---- Hiệu ứng chuyển lời: "tô chữ theo nhịp" và "hiện từng chữ" ----
@@ -397,7 +367,7 @@ function singleLyricLayers(ctx: CanvasRenderingContext2D, scene: Scene, index: n
       motion = { lyrics: scene.lyrics, index, from: settled, started: now - lyricTransitionMs };
       portraitMotion.set(ctx, motion);
     }
-    const layers = blendPortrait(motion.from, motion.index, lyricScrollEase((now - motion.started) / lyricTransitionMs));
+    const layers = blendPortrait(motion.from, motion.index, lyricGlideEase((now - motion.started) / lyricTransitionMs));
     if (motion.index !== index) portraitMotion.set(ctx, { lyrics: scene.lyrics, index, from: layers, started: now });
     return scene.reducedMotion ? settled : layers;
   }
@@ -410,13 +380,13 @@ function singleLyricLayers(ctx: CanvasRenderingContext2D, scene: Scene, index: n
     timeline = [];
     for (const cue of cues) {
       const previous = timeline[timeline.length - 1];
-      const from = previous ? blendPortrait(previous.from, previous.index, lyricScrollEase((cue.time - previous.time) / transitionSeconds)) : [];
+      const from = previous ? blendPortrait(previous.from, previous.index, lyricGlideEase((cue.time - previous.time) / transitionSeconds)) : [];
       timeline.push({ ...cue, from });
     }
     portraitTimelines.set(scene.lyrics, timeline);
   }
   const cue = timeline.find(entry => entry.index === index);
-  return cue ? blendPortrait(cue.from, index, lyricScrollEase((scene.currentTime - cue.time) / transitionSeconds)) : settled;
+  return cue ? blendPortrait(cue.from, index, lyricGlideEase((scene.currentTime - cue.time) / transitionSeconds)) : settled;
 }
 
 type Metrics = {
@@ -524,7 +494,6 @@ type LyricEntry = { index: number; wrapped: string[]; top: number; height: numbe
 const lyricStacks = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; key: string; entries: LyricEntry[] }>();
 
 function drawLyricStack(ctx: CanvasRenderingContext2D, scene: Scene, metrics: Metrics, index: number) {
-  const focus = lyricFocus(ctx, scene, index);
   const effect = lyricEffectOf(scene);
   const { scale, lyricX, lyricWidth, lyricTop, lyricHeight, family } = metrics;
   const size = desktop.lyricSize * scale;
@@ -559,8 +528,10 @@ function drawLyricStack(ctx: CanvasRenderingContext2D, scene: Scene, metrics: Me
     const entry = entries[Math.min(entries.length - 1, Math.max(0, lyricIndex))];
     return entry.top + entry.height / 2;
   };
-  const lower = Math.floor(focus);
-  const center = mix(centerFor(lower), centerFor(lower + 1), focus - lower);
+  // Quãng trượt bình thường là khoảng 1,7 lần bước của một câu một dòng; quy về thang của thẻ nhạc để dùng chung công thức tốc độ.
+  const reference = 1.7 * (desktop.lyricSize * desktop.lyricLine + desktop.lyricPad * 2);
+  const focus = lyricFocus(ctx, scene, index, (from, to) => Math.abs(lyricTopAt(centerFor, to) - lyricTopAt(centerFor, from)) / scale / reference * cardTravelReference);
+  const center = lyricTopAt(centerFor, focus);
   const start = lyricTop + lyricHeight / 2 - center;
 
   ctx.save();

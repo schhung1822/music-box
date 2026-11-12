@@ -179,7 +179,7 @@
     letter-spacing: -1px;
     overflow-wrap: break-word;
     filter: blur(0);
-    transition: opacity 420ms cubic-bezier(.22, .61, .36, 1), transform 420ms cubic-bezier(.22, .61, .36, 1), color 420ms ease, filter 420ms ease;
+    transition: opacity 480ms cubic-bezier(.25, .1, .1, 1), transform 480ms cubic-bezier(.25, .1, .1, 1), color 480ms ease, filter 480ms ease;
   }
   .lyric-line[data-distance="2"] { filter: blur(.75px); }
   .lyric-line[data-distance="3"] { filter: blur(1.5px); }

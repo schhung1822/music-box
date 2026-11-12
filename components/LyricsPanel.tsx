@@ -4,9 +4,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { LyricEffect, LyricLine } from "../types/studio";
 import { card as cardMetrics } from "../utils/cardLayout";
-import { cardLyricAlpha, cardLyricEmphasis, createLyricSpring, lyricTopAt, type LyricSpring } from "../utils/cardMotion";
+import { cardLyricAlpha, cardLyricEmphasis } from "../utils/cardMotion";
+import { cardTravelReference, createLyricSpring, lyricSpringOmega, lyricTopAt, springStep, type LyricSpring } from "../utils/lyricSpring";
 import { fitLyricScale } from "../utils/lyricFit";
-import { createSmoothClock, lyricScrollEase, lyricSweep, lyricTransitionMs, sweepEdge, wordDelayMs } from "../utils/lyricMotion";
+import { createSmoothClock, lyricSweep, sweepEdge, wordDelayMs } from "../utils/lyricMotion";
 
 type LyricsPanelProps = {
   lines: LyricLine[];
@@ -65,6 +66,7 @@ export function LyricsPanel({ lines, activeIndex, onActiveIndexChange, recording
   const lineElements = useRef<(HTMLParagraphElement | null)[]>([]);
   const initialized = useRef(false);
   const animation = useRef(0);
+  const glide = useRef({ y: 0, velocity: 0, target: 0, omega: 0, time: 0, running: false });
 
   const timeSource = useRef(getTime);
   useEffect(() => { timeSource.current = getTime; });
@@ -159,19 +161,26 @@ export function LyricsPanel({ lines, activeIndex, onActiveIndexChange, recording
     const container = viewport.current;
     if (!container || card) return;
 
-    // Cuộn bằng requestAnimationFrame thay vì behavior:"smooth" để chuyển động của vùng lời
-    // kết thúc đúng lúc với hiệu ứng mờ dần, thay vì mỗi thứ chạy một nhịp.
-    function glideTo(target: number, animate: boolean) {
+    // Cuộn bằng lò xo giảm chấn tới hạn (utils/lyricSpring.ts) theo từng khung hình thay vì đường cong cố định: bắt đầu êm, đổi câu
+    // giữa chừng thì giữ nguyên vận tốc, câu trước càng cao thì trượt càng chậm. `reference` là quãng trượt bình thường của câu này.
+    function glideTo(target: number, animate: boolean, reference: number) {
       if (!container) return;
       cancelAnimationFrame(animation.current);
-      const start = container.scrollTop;
-      const distance = target - start;
-      if (!animate || Math.abs(distance) < 1) { container.scrollTop = target; return; }
-      const startedAt = performance.now();
-      const step = (now: number) => {
-        const progress = Math.min(1, (now - startedAt) / lyricTransitionMs);
-        container.scrollTop = start + distance * lyricScrollEase(progress);
-        if (progress < 1) animation.current = requestAnimationFrame(step);
+      const motion = glide.current;
+      // Đang chạy dở thì nối tiếp từ vị trí và vận tốc đang có; không thì bắt đầu từ vị trí cuộn thật (người dùng có thể đã tự cuộn).
+      if (!motion.running) { motion.y = container.scrollTop; motion.velocity = 0; }
+      if (!animate || Math.abs(target - motion.y) < 1) { container.scrollTop = target; motion.running = false; return; }
+      motion.omega = lyricSpringOmega(Math.abs(target - motion.y) / reference * cardTravelReference);
+      motion.target = target;
+      motion.time = performance.now();
+      motion.running = true;
+      const step = () => {
+        const now = performance.now();
+        [motion.y, motion.velocity] = springStep(motion.y, motion.velocity, motion.target, (now - motion.time) / 1000, motion.omega);
+        motion.time = now;
+        if (Math.abs(motion.y - motion.target) < .3 && Math.abs(motion.velocity) < 4) { container.scrollTop = motion.target; motion.running = false; return; }
+        container.scrollTop = motion.y;
+        animation.current = requestAnimationFrame(step);
       };
       animation.current = requestAnimationFrame(step);
     }
@@ -182,9 +191,13 @@ export function LyricsPanel({ lines, activeIndex, onActiveIndexChange, recording
       const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const containerBounds = container.getBoundingClientRect();
       const lineBounds = line.getBoundingClientRect();
+      // Bước của một câu một dòng (cao dòng cộng đệm hai phía), theo cỡ chữ đang dùng.
+      const style = getComputedStyle(line);
+      const pitch = (parseFloat(style.lineHeight) || line.offsetHeight) + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
       glideTo(
         container.scrollTop + lineBounds.top - containerBounds.top - container.clientHeight / 2 + lineBounds.height / 2,
         smooth && !reduceMotion,
+        1.7 * pitch,
       );
     }
 
