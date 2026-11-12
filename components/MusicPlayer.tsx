@@ -20,7 +20,7 @@ export function MusicPlayer({ title, artist, children, playback, cleanView, show
     <section className="music-player" aria-labelledby="song-heading">
       {children}
       <div className="song-info">
-        <h2 id="song-heading">{title.trim() || "Một khoảng lặng"}</h2>
+        <h2 id="song-heading">{title.trim() || "Hunq.lofi"}</h2>
         <p>{artist.trim() || "Âm thanh của bạn"}</p>
       </div>
       {showProgress && (

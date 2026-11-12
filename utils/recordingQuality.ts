@@ -1,8 +1,11 @@
-import { outputDimensions, type DisplaySettings, type VideoFormat } from "../types/studio";
+import { outputDimensions, type DisplaySettings, type StudioVariant, type VideoFormat } from "../types/studio";
+import { cardAspectRatio } from "./cardLayout";
 import { getSceneArtSize } from "./renderScene";
 import { clampVideoZoom } from "./media";
 
 export const recordingFrameRate = 60;
+/** Tốc độ bit của video thẻ nhạc: khoảng 8 Mbps ở 1080×1920, 60 khung/giây (một phút ≈ 60 MB). */
+export const cardVideoBitsPerSecond = 8_000_000;
 
 // Hỏi rõ từng codec, từ bộ đôi phổ biến nhất trở xuống:
 // H.264 + AAC mở được ở mọi nơi; máy thiếu bộ mã hóa AAC (bản Windows N chẳng hạn) vẫn ghi
@@ -71,15 +74,22 @@ export function pickRecordingFormat(preferred: VideoFormat) {
 }
 
 /** Keep the visible source crop near native resolution, within a practical real-time canvas size. */
-export function getRecordingQuality(settings: DisplaySettings, video: Pick<HTMLVideoElement, "videoWidth" | "videoHeight"> | null) {
-  const [baseWidth, baseHeight] = outputDimensions[settings.aspectRatio];
+export function getRecordingQuality(settings: DisplaySettings, video: Pick<HTMLVideoElement, "videoWidth" | "videoHeight"> | null, variant: StudioVariant = "classic") {
+  // Thẻ nhạc chỉ ghi khung dọc, cố định 1080×1920 và nén vừa phải: video đăng mạng xã hội không cần nét hơn,
+  // mà tệp nhẹ hơn nhiều so với ghi theo độ phân giải của video nguồn.
+  if (variant === "card") {
+    const [width, height] = outputDimensions[cardAspectRatio];
+    return { width, height, frameRate: recordingFrameRate, videoBitsPerSecond: cardVideoBitsPerSecond, audioBitsPerSecond: 192_000 };
+  }
+  const aspectRatio = settings.aspectRatio;
+  const [baseWidth, baseHeight] = outputDimensions[aspectRatio];
   // Thu nhỏ video thì nhiều điểm ảnh nguồn dồn vào khung hơn, phóng to thì ngược lại.
   const cropSize = settings.visualMode === "video" && video
     ? Math.min(video.videoWidth, video.videoHeight) / clampVideoZoom(settings.videoZoom, video.videoWidth, video.videoHeight) : 0;
   const nativeScale = Number.isFinite(cropSize) && cropSize > 0 ? cropSize / getSceneArtSize(settings) : 1;
   const scale = Math.min(3840 / Math.max(baseWidth, baseHeight), Math.max(1, nativeScale));
   // Multiples of the ratio's even dimensions preserve the exact ratio and suit video encoders.
-  const [unitWidth, unitHeight] = settings.aspectRatio === "4:3" ? [8, 6] : [18, 32];
+  const [unitWidth, unitHeight] = aspectRatio === "4:3" ? [8, 6] : [18, 32];
   const units = Math.min(Math.floor(3840 / Math.max(unitWidth, unitHeight)), Math.ceil(baseWidth * scale / unitWidth));
   const width = units * unitWidth;
   const height = units * unitHeight;

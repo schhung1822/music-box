@@ -1,3 +1,5 @@
+// Hai giao diện cùng một bộ máy phát và ghi hình: "classic" là trang gốc, "card" là thẻ nhạc kính mờ ở /card.
+export type StudioVariant = "classic" | "card";
 export type SourceMode = "local" | "youtube";
 export type VisualMode = "video" | "disc";
 // Nền trang: "default" là nền tối sẵn có, ba giá trị còn lại là nền WebGL của React Bits.

@@ -70,7 +70,7 @@ export function MediaSetup({ title, artist, onTitleChange, onArtistChange, sourc
         <p className="field-hint mt-3">Trình phát YouTube chính thức cần kết nối mạng. Chỉ dùng để xem và nghe; không tải nội dung hoặc ghi xuất từ YouTube.</p>
       </form>
       <div className="metadata-fields">
-        <div><label htmlFor="song-title" className="field-label">Tên bài hát</label><input id="song-title" className="text-field" placeholder="Một khoảng lặng" value={title} maxLength={160} onChange={event => onTitleChange(event.target.value)} /></div>
+        <div><label htmlFor="song-title" className="field-label">Tên bài hát</label><input id="song-title" className="text-field" placeholder="Hunq.lofi" value={title} maxLength={160} onChange={event => onTitleChange(event.target.value)} /></div>
         <div><label htmlFor="artist" className="field-label">Nghệ sĩ</label><input id="artist" className="text-field" placeholder="Âm thanh của bạn" value={artist} maxLength={160} onChange={event => onArtistChange(event.target.value)} /></div>
       </div>
       <div className="settings-divider" />

@@ -479,3 +479,116 @@
   .vinyl-disc { transform: none !important; will-change: auto; }
   .vinyl-cover { transform: translate(-50%, -50%) !important; will-change: auto; }
 }
+
+/* ===== Thẻ nhạc kính mờ (/card) =====
+   Số đo lấy từ utils/cardLayout.ts qua biến --card-* đặt trên .card-player. Thẻ luôn dựng ở cỡ 360px rồi
+   được phóng bằng transform cho vừa cửa sổ, nên chữ xuống dòng giống hệt bản vẽ trên canvas của bản ghi. */
+/* Nằm ngoài @layer để thắng các quy tắc @media của giao diện gốc (quy tắc không thuộc lớp luôn thắng quy tắc trong lớp). */
+  .card-studio { background: #0e1014; }
+  .card-backdrop { position: fixed; z-index: -1; inset: 0; overflow: hidden; pointer-events: none; background: linear-gradient(135deg, #232a3a, #0e1014); }
+  .card-backdrop img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; transform: scale(1.12); object-fit: cover; filter: blur(.8vmax); }
+  .card-backdrop::after { position: absolute; inset: 0; background: rgb(8 9 12 / .26); content: ""; }
+  .card-main { display: flex; height: 100svh; padding: 20px; outline: none; }
+  .card-fit { display: flex; min-width: 0; min-height: 0; flex: 1; align-items: center; justify-content: center; }
+  .card-box { position: relative; flex-shrink: 0; }
+  /* Không dùng backdrop-filter: nền đã được làm mờ sẵn nên nó chẳng thêm gì, mà phải vẽ lại mỗi khung khi video trong thẻ chạy, làm giật cả bản ghi. */
+  .card-player {
+    position: absolute; top: 0; left: 0; display: flex; width: var(--card-w); height: var(--card-h);
+    flex-direction: column; padding: var(--card-pad); transform: scale(var(--card-scale)); transform-origin: 0 0;
+    border-radius: var(--card-radius); color: #fff;
+    background: linear-gradient(160deg, rgb(255 255 255 / .13), rgb(255 255 255 / .04)), rgb(110 112 120 / .26);
+    box-shadow: 0 28px 80px rgb(0 0 0 / .45), inset 0 0 0 1px rgb(255 255 255 / .16);
+  }
+  .card-art { width: 100%; flex-shrink: 0; }
+  .card-art .media-frame { box-shadow: 0 10px 34px rgb(0 0 0 / .32); }
+  .card-info { min-width: 0; margin-top: var(--card-info-top); }
+  .card-info h2 { margin: 0; overflow: hidden; font-size: var(--card-title-size); font-weight: 650; line-height: var(--card-title-line); letter-spacing: var(--card-title-tracking); text-overflow: ellipsis; white-space: nowrap; }
+  .card-info p { margin: var(--card-artist-top) 0 0; overflow: hidden; color: rgb(255 255 255 / .58); font-size: var(--card-artist-size); line-height: var(--card-artist-line); text-overflow: ellipsis; white-space: nowrap; }
+  .card-progress { margin-top: var(--card-bar-top); }
+  .card-times { display: flex; justify-content: space-between; margin-top: var(--card-time-top); color: rgb(255 255 255 / .55); font-size: var(--card-time-size); line-height: var(--card-time-line); font-variant-numeric: tabular-nums; }
+  /* Thanh kéo kiểu iOS: rãnh bo tròn, phần đã đầy màu trắng, không núm. Ô nhập thật trong suốt, phủ rộng hơn rãnh để dễ chạm. */
+  .card-seek { position: relative; height: var(--card-bar-h); }
+  .card-seek input { position: absolute; top: -10px; left: 0; width: 100%; height: calc(100% + 20px); margin: 0; opacity: 0; }
+  .card-seek:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 999px; }
+  .card-seek[data-disabled] { opacity: .5; }
+  .card-track { height: var(--card-bar-h); overflow: hidden; border-radius: 999px; background: rgb(255 255 255 / .28); }
+  .card-track span { display: block; height: 100%; background: rgb(255 255 255 / .88); }
+  .card-controls { display: grid; height: var(--card-controls-h); grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; margin-top: var(--card-controls-top); }
+  .card-transport { display: flex; align-items: center; justify-content: center; gap: 22px; }
+  .card-button { display: inline-flex; width: 40px; height: 40px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 50%; color: #fff; transition: background-color 180ms, opacity 180ms, transform 120ms; }
+  .card-button:not(:disabled):hover { background: rgb(255 255 255 / .12); }
+  .card-button:not(:disabled):active { transform: scale(.92); }
+  .card-button:disabled { opacity: .4; }
+  .card-play { width: 44px; height: 44px; }
+  .card-settings, .card-mute { width: 36px; height: 36px; color: rgb(255 255 255 / .72); }
+  .card-mute { justify-self: end; }
+  .card-settings { justify-self: start; }
+  .placeholder-image { display: block; width: 100%; max-width: none; height: 100%; object-fit: cover; }
+  .card-credit { margin: var(--card-credit-top) 0 0; color: rgb(255 255 255 / .62); font-size: var(--card-credit-size); font-style: italic; font-weight: 700; line-height: var(--card-credit-line); letter-spacing: var(--card-credit-tracking); text-align: center; user-select: none; }
+  .card-lyrics { margin-top: var(--card-lyrics-top); }
+  /* Cột lời không cuộn mà trượt bằng transform (components/LyricsPanel.tsx): chạy trên bộ ghép lớp, không cắt chữ theo từng pixel nguyên như scrollTop. */
+  .card-lyrics .lyrics-viewport { overflow: clip; height: var(--card-lyrics-h); mask-image: linear-gradient(to bottom, transparent, #000 var(--card-lyric-pad), #000 calc(100% - 14px), transparent); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--card-lyric-pad), #000 calc(100% - 14px), transparent); }
+  .card-lyrics .lyrics-lines { position: relative; padding: var(--card-lyric-pad) 0 0; will-change: transform; }
+  /* Độ sáng và độ phóng của từng câu do LyricsPanel ghi theo từng khung hình; chưa ghi thì ẩn để không lóe cả bài lúc tải trang. */
+  .card-lyrics .lyric-line { opacity: 0; transition: none; margin: 0 0 var(--card-lyric-gap); padding: 0; filter: none; font-size: var(--card-lyric-size); line-height: var(--card-lyric-line); letter-spacing: var(--card-lyric-tracking); }
+  .card-lyrics .lyric-line[data-distance] { filter: none; }
+  .card-lyrics .lyric-clamp { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: var(--card-lyric-lines); }
+
+/* ===== Hộp thiết lập của thẻ nhạc =====
+   Cùng bố cục với hộp thiết lập gốc nhưng đổi bảng màu xanh rêu sang xám kính và trắng để hợp với thẻ.
+   Nằm ngoài @layer vì phải thắng cả các quy tắc @media không thuộc lớp của giao diện gốc. */
+.card-dialog { --accent: #fff; --line: rgb(255 255 255 / .12); border-color: rgb(255 255 255 / .16); background: rgb(36 38 44 / .88); -webkit-backdrop-filter: blur(28px) saturate(1.3); backdrop-filter: blur(28px) saturate(1.3); box-shadow: 0 30px 100px rgb(0 0 0 / .55); }
+.card-dialog::backdrop { background: rgb(6 7 10 / .5); backdrop-filter: blur(10px); }
+.card-dialog .eyebrow, .card-dialog .settings-footer, .card-dialog .settings-footer svg { color: rgb(255 255 255 / .5); }
+.card-dialog .settings-description, .card-dialog .field-hint, .card-dialog .result-meta, .card-dialog .switch-row label span { color: rgb(255 255 255 / .56); }
+.card-dialog .field-label, .card-dialog .switch-row label, .card-dialog .result-title { color: rgb(255 255 255 / .9); }
+.card-dialog .field-success, .card-dialog .offset-summary { color: #d3e4d5; }
+.card-dialog .settings-tabs button { color: rgb(255 255 255 / .55); }
+.card-dialog .settings-tabs button[aria-pressed="true"] { border-bottom-color: #fff; color: #fff; }
+.card-dialog .settings-tabs button:hover { color: #fff; }
+.card-dialog .icon-button { color: rgb(255 255 255 / .7); }
+.card-dialog .icon-button:not(:disabled):hover { background: rgb(255 255 255 / .12); color: #fff; }
+.card-dialog .text-field { border-color: rgb(255 255 255 / .16); background: rgb(255 255 255 / .07); color: #fff; }
+.card-dialog .text-field::placeholder { color: rgb(255 255 255 / .38); }
+.card-dialog .text-field:hover { border-color: rgb(255 255 255 / .3); }
+.card-dialog .text-field:focus { border-color: rgb(255 255 255 / .6); }
+.card-dialog .primary-button { border-color: transparent; background: #f2f3f5; color: #16171a; }
+.card-dialog .primary-button:hover { background: #fff; }
+.card-dialog .file-button, .card-dialog .text-button { border-color: rgb(255 255 255 / .22); color: rgb(255 255 255 / .85); }
+.card-dialog .text-button { border: 0; color: rgb(255 255 255 / .7); }
+.card-dialog .file-button:hover { background: rgb(255 255 255 / .08); }
+.card-dialog .upload-tile { border-color: rgb(255 255 255 / .26); background: rgb(255 255 255 / .06); color: rgb(255 255 255 / .75); }
+.card-dialog .upload-tile:hover { border-color: rgb(255 255 255 / .5); background: rgb(255 255 255 / .1); }
+.card-dialog .file-selected { border-color: rgb(255 255 255 / .5); }
+.card-dialog .file-name { color: #fff; }
+.card-dialog .file-formats, .card-dialog .remove-file { color: rgb(255 255 255 / .5); }
+.card-dialog .segmented-control { border-color: rgb(255 255 255 / .12); background: rgb(255 255 255 / .06); }
+.card-dialog .segmented-control button { color: rgb(255 255 255 / .6); }
+.card-dialog .segmented-control button[aria-pressed="true"] { background: rgb(255 255 255 / .16); color: #fff; }
+.card-dialog .segmented-control button:hover { color: #fff; }
+.card-dialog .visual-mode-option, .card-dialog .format-option { border-color: rgb(255 255 255 / .14); color: rgb(255 255 255 / .62); }
+.card-dialog .visual-mode-option strong { color: #fff; }
+.card-dialog .format-option:hover { background: rgb(255 255 255 / .05); }
+.card-dialog .selected-mode, .card-dialog .format-selected, .card-dialog .result-applied { border-color: rgb(255 255 255 / .45); background: rgb(255 255 255 / .13); color: #fff; }
+.card-dialog .toggle-input { border-color: rgb(255 255 255 / .3); background: rgb(255 255 255 / .12); }
+.card-dialog .toggle-input::after { background: rgb(255 255 255 / .8); }
+.card-dialog .toggle-input:checked { border-color: #fff; background: #fff; }
+.card-dialog .toggle-input:checked::after { background: #1b1c20; }
+.card-dialog .range-input { background: rgb(255 255 255 / .2); accent-color: #fff; }
+.card-dialog .range-input::-webkit-slider-thumb { background: #fff; }
+.card-dialog .range-input::-moz-range-thumb { background: #fff; }
+.card-dialog .checkbox-label, .card-dialog .sync-current { color: rgb(255 255 255 / .85); }
+.card-dialog .checkbox-label input { accent-color: #fff; }
+.card-dialog .sync-prompt { border-left-color: rgb(255 255 255 / .5); background: rgb(255 255 255 / .05); }
+.card-dialog .timestamp-row { border-bottom-color: rgb(255 255 255 / .08); }
+.card-dialog .timestamp-text { color: rgb(255 255 255 / .6); }
+.card-dialog .selected-timestamp { background: rgb(255 255 255 / .06); }
+.card-dialog .selected-timestamp .timestamp-text { color: #fff; }
+.card-dialog .search-result { border-color: rgb(255 255 255 / .14); }
+.card-dialog .search-result:hover { border-color: rgb(255 255 255 / .3); background: rgb(255 255 255 / .07); }
+.card-dialog .result-badge { border-color: rgb(255 255 255 / .2); color: rgb(255 255 255 / .65); }
+.card-dialog .badge-synced, .card-dialog .badge-match { border-color: rgb(255 255 255 / .4); color: #fff; }
+.card-dialog .badge-applied { border-color: transparent; background: #f2f3f5; color: #16171a; }
+.card-dialog .recording-result { border-top-color: rgb(255 255 255 / .12); }
+.card-dialog .recording-preview { background: #0b0c0f; }
+.card-studio .status-notice { border-color: rgb(255 255 255 / .16); background: rgb(36 38 44 / .92); color: #fff; }

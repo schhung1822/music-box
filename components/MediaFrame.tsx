@@ -24,6 +24,8 @@ type MediaFrameProps = {
   onVideoSize: (size: VideoSize | null) => void; onVideoZoomChange: (zoom: number) => void;
   /** Độ dời video theo cạnh khung: [ngang, dọc]. */
   videoOffset: [x: number, y: number]; onVideoOffsetChange: (x: number, y: number) => void;
+  /** Ảnh thay cho phong cảnh vẽ sẵn khi chưa có video hay ảnh bìa; `placeholderRef` để bản ghi lấy lại đúng ảnh này. */
+  placeholderSrc?: string; placeholderRef?: RefObject<HTMLImageElement | null>;
 };
 
 const zoomStep = .1;
@@ -79,7 +81,7 @@ function VideoPanControl({ offset, onChange }: { offset: [number, number]; onCha
   );
 }
 
-export function MediaFrame({ assets, sourceMode, visualMode, currentTime, isPlaying, videoRef, audioRef, coverRef, youtubeRef, youtubeLoaded, onError, videoZoom, videoSize, zoomable, onVideoSize, onVideoZoomChange, videoOffset, onVideoOffsetChange }: MediaFrameProps) {
+export function MediaFrame({ assets, sourceMode, visualMode, currentTime, isPlaying, videoRef, audioRef, coverRef, youtubeRef, youtubeLoaded, onError, videoZoom, videoSize, zoomable, onVideoSize, onVideoZoomChange, videoOffset, onVideoOffsetChange, placeholderSrc, placeholderRef }: MediaFrameProps) {
   const drag = useRef<{ id: number; x: number; y: number; offsetX: number; offsetY: number; size: number } | null>(null);
   const [panning, setPanning] = useState(false);
   const disc = sourceMode === "local" && visualMode === "disc";
@@ -125,7 +127,9 @@ export function MediaFrame({ assets, sourceMode, visualMode, currentTime, isPlay
         style={disc ? { transform: `rotate(${currentTime * 30}deg)`, transition: isPlaying ? "transform 90ms linear" : "none" } : undefined}>
         {disc && <div className="vinyl-grooves" />}
         <div className={disc ? "vinyl-label" : "cover-image"}>
-          <PlaceholderArtwork />
+          {placeholderSrc
+            ? <img ref={placeholderRef} className="placeholder-image" src={placeholderSrc} alt="Ảnh mặc định" draggable={false} />
+            : <PlaceholderArtwork />}
         </div>
         {disc && <span className="vinyl-spindle" />}
       </div>

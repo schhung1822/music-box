@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MusicPlayer } from "./MusicPlayer";
+import { CardBackdrop, CardPlayer } from "./CardPlayer";
+import { cardAspectRatio, cardThumbnailSrc } from "../utils/cardLayout";
 import { MediaFrame, type VideoSize } from "./MediaFrame";
 import { LyricsPanel } from "./LyricsPanel";
 import { MediaSetup } from "./MediaSetup";
@@ -15,7 +17,7 @@ import { useMediaPlayer } from "../hooks/useMediaPlayer";
 import { useYouTubePlayer } from "../hooks/useYouTubePlayer";
 import { useRecorder } from "../hooks/useRecorder";
 import { useBackdropGate } from "../hooks/useBackdropGate";
-import type { BackgroundMode, DisplaySettings, LyricLine, MediaKind, SourceMode } from "../types/studio";
+import type { BackgroundMode, DisplaySettings, LyricLine, MediaKind, SourceMode, StudioVariant } from "../types/studio";
 import { activeLyricIndex, parsePlainLyrics } from "../utils/lyrics";
 import { clampVideoOffset, clampVideoZoom, formatTime } from "../utils/media";
 import { youtubeVideoId } from "../utils/youtube";
@@ -24,7 +26,9 @@ import { youtubeVideoId } from "../utils/youtube";
 const initialLyrics = parsePlainLyrics("Mình để ngày trôi thật chậm\nQua những con đường thân quen\nChỉ còn giai điệu ở lại\nVà một khoảng trời bình yên\nĐể những âu lo ngủ yên\nNghe lòng mình thêm dịu êm");
 type SettingsTab = "media" | "lyrics" | "display" | "record";
 
-export function Studio() {
+/** `variant` chọn giao diện: "classic" là trang gốc, "card" là thẻ nhạc kính mờ ở /card. Cả hai dùng chung bộ phát, lời và bộ ghi. */
+export function Studio({ variant = "classic" }: { variant?: StudioVariant }) {
+  const card = variant === "card";
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [sourceMode, setSourceMode] = useState<SourceMode>("local");
@@ -35,7 +39,7 @@ export function Studio() {
   const [lyrics, setLyrics] = useState<LyricLine[]>(initialLyrics);
   const [manualIndex, setManualIndex] = useState(2);
   const [cleanView, setCleanView] = useState(false);
-  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: "4:3", videoFormat: "webm", clipDuration: 120, videoZoom: 1, videoOffsetX: 0, videoOffsetY: 0, lyricEffect: "scroll", backdropInVideo: true });
+  const [settings, setSettings] = useState<DisplaySettings>({ visualMode: "video", showLyrics: true, showProgress: true, showControls: true, aspectRatio: card ? cardAspectRatio : "4:3", videoFormat: "webm", clipDuration: 120, videoZoom: 1, videoOffsetX: 0, videoOffsetY: 0, lyricEffect: "scroll", backdropInVideo: true });
   // Nền trang đứng riêng ngoài DisplaySettings vì nó chỉ đổi giao diện, không đi vào bản ghi.
   const [background, setBackground] = useState<BackgroundMode>("default");
   // Kích thước thật của video, để thanh thu phóng biết mức "vừa khung".
@@ -48,6 +52,8 @@ export function Studio() {
   const settingsButton = useRef<HTMLButtonElement>(null);
   const coverRef = useRef<HTMLImageElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const cardBackdropRef = useRef<HTMLImageElement>(null);
+  const thumbnailRef = useRef<HTMLImageElement>(null);
   const wasClean = useRef(false);
   const files = useLocalFiles();
   const local = useMediaPlayer(files.assets.audio?.url, files.assets.video?.url, sourceMode === "local", volume, muted);
@@ -126,7 +132,8 @@ export function Studio() {
     dialog.current?.close();
     setCleanView(false);
     void recorder.start({
-      element, title, artist, lyrics, manualLyricIndex: manualIndex, settings,
+      element, title, artist, lyrics, manualLyricIndex: manualIndex, settings: card ? { ...settings, aspectRatio: cardAspectRatio } : settings, variant,
+      getCardBackdrop: () => cardBackdropRef.current, getPlaceholder: () => thumbnailRef.current,
       getBackdrop: () => backdropRef.current?.querySelector("canvas") ?? null,
       video: files.assets.video ? local.videoRef.current : null,
       cover: files.assets.cover ? coverRef.current : null,
@@ -160,40 +167,58 @@ export function Studio() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  const onMute = () => {
+    if (muted || volume === 0) { setMuted(false); if (volume === 0) setVolume(.8); }
+    else setMuted(true);
+  };
+  const mediaFrame = (
+    <MediaFrame assets={files.assets} sourceMode={sourceMode} visualMode={settings.visualMode} currentTime={playback.currentTime} isPlaying={playback.isPlaying}
+      audioRef={local.audioRef} videoRef={local.videoRef} coverRef={coverRef} youtubeRef={youtube.containerRef} youtubeLoaded={Boolean(youtubeId)} onError={setNotice}
+      videoZoom={settings.videoZoom} videoSize={videoSize} zoomable={!hiddenControls && !recorder.busy} onVideoSize={setVideoSize}
+      onVideoZoomChange={videoZoom => setSettings(current => {
+        // Thu nhỏ thì video có ít chỗ dời hơn, nên kéo độ dời về trong giới hạn mới.
+        if (!videoSize) return { ...current, videoZoom };
+        const [videoOffsetX, videoOffsetY] = clampVideoOffset(current.videoOffsetX, current.videoOffsetY, clampVideoZoom(videoZoom, ...videoSize), ...videoSize);
+        return { ...current, videoZoom, videoOffsetX, videoOffsetY };
+      })}
+      videoOffset={[settings.videoOffsetX, settings.videoOffsetY]} placeholderSrc={card ? cardThumbnailSrc : undefined} placeholderRef={thumbnailRef}
+      onVideoOffsetChange={(videoOffsetX, videoOffsetY) => setSettings(current => ({ ...current, videoOffsetX, videoOffsetY }))} />
+  );
+  const lyricsPanel = settings.showLyrics ? (
+    <LyricsPanel lines={lyrics} activeIndex={activeIndex} onActiveIndexChange={selectLyric} recordingMode={hiddenControls} layout={card ? "card" : "center"}
+      effect={settings.lyricEffect} isPlaying={playback.isPlaying} getTime={playback.getCurrentTime} />
+  ) : null;
+
   return (
-    <div className={`studio-shell minimal-studio${hiddenControls ? " recording-mode" : ""}`}>
-      <StudioBackground mode={background} gate={backdropGate} containerRef={backdropRef} paused={recorder.busy && !settings.backdropInVideo} />
-      <main ref={main} id="main-content" className="studio-main" tabIndex={-1} aria-label="Không gian âm nhạc"
+    <div className={`studio-shell ${card ? "card-studio" : "minimal-studio"}${hiddenControls ? " recording-mode" : ""}`}>
+      {card
+        ? <CardBackdrop imageRef={cardBackdropRef} />
+        : <StudioBackground mode={background} gate={backdropGate} containerRef={backdropRef} paused={recorder.busy && !settings.backdropInVideo} />}
+      <main ref={main} id="main-content" className={card ? "card-main" : "studio-main"} tabIndex={-1} aria-label="Không gian âm nhạc"
         onDoubleClick={hiddenControls ? () => setCleanView(false) : undefined}>
         <h1 className="sr-only">Không gian âm nhạc của bạn</h1>
-        <div className={`studio-grid${!settings.showLyrics ? " player-only" : ""}`}>
-          <MusicPlayer title={title} artist={artist} playback={playback} cleanView={hiddenControls} showProgress={settings.showProgress}
+        {card ? (
+          <CardPlayer title={title} artist={artist} playback={playback} lyrics={lyricsPanel} cleanView={hiddenControls} showProgress={settings.showProgress}
             muted={muted || volume === 0} busy={recorder.busy} settingsRef={settingsButton}
-            onOpenSettings={() => openSettings()} onToggle={() => void togglePlayback()} onSeek={playback.seek} onMute={() => {
-              if (muted || volume === 0) { setMuted(false); if (volume === 0) setVolume(.8); }
-              else setMuted(true);
-            }}>
-            <MediaFrame assets={files.assets} sourceMode={sourceMode} visualMode={settings.visualMode} currentTime={playback.currentTime} isPlaying={playback.isPlaying}
-              audioRef={local.audioRef} videoRef={local.videoRef} coverRef={coverRef} youtubeRef={youtube.containerRef} youtubeLoaded={Boolean(youtubeId)} onError={setNotice}
-              videoZoom={settings.videoZoom} videoSize={videoSize} zoomable={!hiddenControls && !recorder.busy} onVideoSize={setVideoSize}
-              onVideoZoomChange={videoZoom => setSettings(current => {
-                // Thu nhỏ thì video có ít chỗ dời hơn, nên kéo độ dời về trong giới hạn mới.
-                if (!videoSize) return { ...current, videoZoom };
-                const [videoOffsetX, videoOffsetY] = clampVideoOffset(current.videoOffsetX, current.videoOffsetY, clampVideoZoom(videoZoom, ...videoSize), ...videoSize);
-                return { ...current, videoZoom, videoOffsetX, videoOffsetY };
-              })}
-              videoOffset={[settings.videoOffsetX, settings.videoOffsetY]}
-              onVideoOffsetChange={(videoOffsetX, videoOffsetY) => setSettings(current => ({ ...current, videoOffsetX, videoOffsetY }))} />
-          </MusicPlayer>
-          {settings.showLyrics && <LyricsPanel lines={lyrics} activeIndex={activeIndex} onActiveIndexChange={selectLyric} recordingMode={hiddenControls}
-            effect={settings.lyricEffect} isPlaying={playback.isPlaying} getTime={playback.getCurrentTime} />}
-        </div>
+            onOpenSettings={() => openSettings()} onToggle={() => void togglePlayback()} onSeek={playback.seek} onMute={onMute}>
+            {mediaFrame}
+          </CardPlayer>
+        ) : (
+          <div className={`studio-grid${!settings.showLyrics ? " player-only" : ""}`}>
+            <MusicPlayer title={title} artist={artist} playback={playback} cleanView={hiddenControls} showProgress={settings.showProgress}
+              muted={muted || volume === 0} busy={recorder.busy} settingsRef={settingsButton}
+              onOpenSettings={() => openSettings()} onToggle={() => void togglePlayback()} onSeek={playback.seek} onMute={onMute}>
+              {mediaFrame}
+            </MusicPlayer>
+            {lyricsPanel}
+          </div>
+        )}
       </main>
       {error && !hiddenControls && <div className="status-notice" role="alert"><p>{error}</p><button type="button" className="icon-button" aria-label="Đóng thông báo" onClick={() => { setNotice(""); playback.clearError(); }}><Icon name="close" size={15} /></button></div>}
       {cleanView && !recorder.busy && <button type="button" className="capture-exit" onClick={() => setCleanView(false)}>Hiện thanh điều khiển</button>}
       {recorder.busy && <button type="button" className="recording-indicator" onClick={recorder.stop} aria-label="Dừng ghi"><span />{recorder.status === "preparing" ? "Đang chuẩn bị…" : recorder.status === "stopping" ? "Đang lưu…" : `Đang ghi · ${formatTime(recorder.elapsed)}`}<Icon name="stop" size={15} /></button>}
       {!recorder.busy && recorder.error && !settingsOpen && <button className="recording-feedback" type="button" onClick={() => openSettings("record")}>Xem thông báo bản ghi</button>}
-      <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-heading" onClose={() => setSettingsOpen(false)}
+      <dialog ref={dialog} className={`settings-dialog${card ? " card-dialog" : ""}`} aria-labelledby="settings-heading" onClose={() => setSettingsOpen(false)}
         onClick={event => {
           if (event.target !== event.currentTarget) return;
           const bounds = event.currentTarget.getBoundingClientRect();
@@ -213,7 +238,7 @@ export function Studio() {
           <fieldset disabled={recorder.busy} hidden={tab !== "lyrics"}><LyricsEditor lines={lyrics} activeIndex={activeIndex} onApply={applyLyrics} onUpdate={updateLyrics} onSelect={selectLyric} title={title} artist={artist} duration={playback.duration}
             getCurrentTime={playback.getCurrentTime} currentTime={playback.currentTime} isPlaying={playback.isPlaying} ready={playback.ready}
             onTogglePlay={() => void togglePlayback()} active={settingsOpen && tab === "lyrics" && !recorder.busy} /></fieldset>
-          <fieldset disabled={recorder.busy} hidden={tab !== "display"}><OutputSettings sourceMode={sourceMode} settings={settings} background={background} backdropGate={backdropGate} onChange={setSettings} onBackgroundChange={setBackground} onCleanView={enterCleanView} /></fieldset>
+          <fieldset disabled={recorder.busy} hidden={tab !== "display"}><OutputSettings variant={variant} sourceMode={sourceMode} settings={settings} background={background} backdropGate={backdropGate} onChange={setSettings} onBackgroundChange={setBackground} onCleanView={enterCleanView} /></fieldset>
           <div hidden={tab !== "record"}><RecordingPanel recorder={recorder} sourceMode={sourceMode} settings={settings} ready={local.ready} active={settingsOpen && tab === "record"}
             currentTime={playback.currentTime} onSettingsChange={setSettings} onStart={startRecording} onPreview={pauseAll} /></div>
         </div>

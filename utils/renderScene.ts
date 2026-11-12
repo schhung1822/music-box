@@ -1,4 +1,4 @@
-import type { DisplaySettings, LyricLine } from "../types/studio";
+import type { DisplaySettings, LyricLine, StudioVariant } from "../types/studio";
 import { activeLyricIndex } from "./lyrics";
 import { clampVideoOffset, clampVideoZoom, formatTime } from "./media";
 import { createSmoothClock, lyricScrollEase, lyricSweep, lyricTransitionMs, sweepEdge, wordProgress, wordsDoneMs } from "./lyricMotion";
@@ -10,6 +10,12 @@ export type Scene = {
   fontFamily?: string;
   /** Canvas WebGL của nền động đang chạy, phủ lên nền tối thay cho hai vệt sáng tĩnh. */
   backdrop?: HTMLCanvasElement | null;
+  /** Giao diện đang ghi: "card" vẽ thẻ nhạc kính mờ bằng renderCardScene thay vì bố cục gốc. */
+  variant?: StudioVariant;
+  /** Ảnh nền của thẻ nhạc, được làm mờ và phủ kín khung. */
+  cardBackdrop?: HTMLImageElement | null;
+  /** Ảnh mặc định của khung vuông khi chưa có video hay ảnh bìa (thẻ nhạc). */
+  placeholder?: HTMLImageElement | null;
   /** Monotonic animation clock in milliseconds, independent of media time quantization. */
   animationTime?: number;
 };
@@ -69,11 +75,11 @@ const icons = {
   volume: { paths: ["m11 4-6 5H2v6h3l6 5V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"] },
 };
 
-function font(ctx: CanvasRenderingContext2D, family: string, weight: number | "", size: number, tracking = 0) {
+export function font(ctx: CanvasRenderingContext2D, family: string, weight: number | "", size: number, tracking = 0) {
   ctx.font = `${weight === "" ? "" : `${weight} `}${Math.round(size * 100) / 100}px ${family}`;
   if ("letterSpacing" in ctx) ctx.letterSpacing = `${Math.round(tracking * 100) / 100}px`;
 }
-function blur(ctx: CanvasRenderingContext2D, radius: number) {
+export function blur(ctx: CanvasRenderingContext2D, radius: number) {
   if ("filter" in ctx) ctx.filter = radius > 0 ? `blur(${Math.round(radius * 100) / 100}px)` : "none";
 }
 
@@ -157,7 +163,7 @@ function drawLandscape(ctx: CanvasRenderingContext2D, x: number, y: number, size
   });
 }
 
-function drawVisual(ctx: CanvasRenderingContext2D, scene: Scene, x: number, y: number, size: number) {
+export function drawVisual(ctx: CanvasRenderingContext2D, scene: Scene, x: number, y: number, size: number) {
   ctx.save();
   if (scene.settings.visualMode === "disc") {
     const radius = size * .48;
@@ -196,7 +202,7 @@ function drawVisual(ctx: CanvasRenderingContext2D, scene: Scene, x: number, y: n
 
 /** Xuống dòng theo từ. Chỉ khi một từ dài hơn cả dòng mới đành cắt giữa từ. */
 const textLayouts = new WeakMap<CanvasRenderingContext2D, Map<string, string[]>>();
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
+export function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
   let cache = textLayouts.get(ctx);
   if (!cache) { cache = new Map(); textLayouts.set(ctx, cache); }
   const key = `${ctx.font}|${ctx.letterSpacing}|${maxWidth}|${maxLines}|${text}`;
@@ -238,7 +244,7 @@ function lyricBlur(distance: number) {
   const lower = Math.min(4, Math.floor(distance));
   return mix(stops[lower], stops[Math.min(4, lower + 1)], distance - Math.floor(distance));
 }
-const white = (alpha: number) => `rgba(255, 255, 255, ${Math.round(alpha * 1000) / 1000})`;
+export const white = (alpha: number) => `rgba(255, 255, 255, ${Math.round(alpha * 1000) / 1000})`;
 
 // Timed keyframes keep deterministic renders continuous; the recorder's monotonic clock
 // continues those transitions smoothly even when the media clock repeats a timestamp.
@@ -265,7 +271,7 @@ function timelineFocus(scene: Scene, index: number) {
   return cue ? mix(cue.from, index, lyricScrollEase((scene.currentTime - cue.time) / transitionSeconds)) : index;
 }
 
-function lyricFocus(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
+export function lyricFocus(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
   const now = scene.animationTime;
   if (now === undefined) return timelineFocus(scene, index);
   let motion = liveMotion.get(ctx);
@@ -283,13 +289,13 @@ function lyricFocus(ctx: CanvasRenderingContext2D, scene: Scene, index: number) 
 
 // ---- Hiệu ứng chuyển lời: "tô chữ theo nhịp" và "hiện từng chữ" ----
 
-const lyricEffectOf = (scene: Scene) => scene.settings.lyricEffect ?? "scroll";
+export const lyricEffectOf = (scene: Scene) => scene.settings.lyricEffect ?? "scroll";
 // Phần chữ chưa được tô sáng vẫn đọc được, nhưng mờ hơn hẳn phần đã tô.
-const dimmedShare = .36;
+export const dimmedShare = .36;
 
 const sweepClocks = new WeakMap<CanvasRenderingContext2D, ReturnType<typeof createSmoothClock>>();
 /** Tiến độ tô sáng của câu đang hát. Ghi hình dùng đồng hồ nội suy, bản dựng cố định dùng thẳng mốc media. */
-function sweepFraction(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
+export function sweepFraction(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
   if (scene.reducedMotion) return 1;
   let time = scene.currentTime;
   if (scene.animationTime !== undefined) {
@@ -302,7 +308,7 @@ function sweepFraction(ctx: CanvasRenderingContext2D, scene: Scene, index: numbe
 
 const activations = new WeakMap<CanvasRenderingContext2D, { lyrics: LyricLine[]; index: number; since: number }>();
 /** Mili giây kể từ lúc câu thành câu hiện tại; vô hạn nếu đã lâu, đang giảm chuyển động, hoặc câu không có mốc. */
-function wordElapsed(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
+export function wordElapsed(ctx: CanvasRenderingContext2D, scene: Scene, index: number) {
   if (scene.reducedMotion) return Infinity;
   const now = scene.animationTime;
   if (now === undefined) {
@@ -319,7 +325,7 @@ function wordElapsed(ctx: CanvasRenderingContext2D, scene: Scene, index: number)
 }
 
 /** Vẽ các dòng của một câu với phần đã tô sáng chạy từ trái sang phải, nối tiếp qua các dòng ngắt. */
-function drawSweepLines(ctx: CanvasRenderingContext2D, lines: string[], x: number, top: number, lineHeight: number, progress: number, bright: number, dim: number, fadeAt: (y: number) => number) {
+export function drawSweepLines(ctx: CanvasRenderingContext2D, lines: string[], x: number, top: number, lineHeight: number, progress: number, bright: number, dim: number, fadeAt: (y: number) => number) {
   const widths = lines.map(line => ctx.measureText(line).width);
   const total = widths.reduce((sum, width) => sum + width, 0) || 1;
   let before = 0;
@@ -347,7 +353,7 @@ function drawSweepLines(ctx: CanvasRenderingContext2D, lines: string[], x: numbe
 }
 
 /** Vẽ từng chữ trồi lên và rõ dần. Chữ chưa tới lượt thì chưa hiện; xong hết thì người gọi vẽ nguyên câu. */
-function drawWordReveal(ctx: CanvasRenderingContext2D, lines: string[], x: number, top: number, lineHeight: number, size: number, elapsed: number, alpha: number, extraBlur: number, fadeAt: (y: number) => number) {
+export function drawWordReveal(ctx: CanvasRenderingContext2D, lines: string[], x: number, top: number, lineHeight: number, size: number, elapsed: number, alpha: number, extraBlur: number, fadeAt: (y: number) => number) {
   const count = lines.reduce((sum, line) => sum + line.split(" ").filter(Boolean).length, 0);
   let index = 0;
   lines.forEach((line, n) => {
@@ -425,7 +431,7 @@ function measure(ctx: CanvasRenderingContext2D, scene: Scene, width: number, hei
   const base = wide ? desktop : mobile;
   // Số dòng tiêu đề không đổi theo tỉ lệ phóng, nên đo trước ở pixel giao diện.
   font(ctx, family, 650, base.titleSize, base.titleTracking);
-  const titleLines = wrapText(ctx, scene.title || "Một khoảng lặng", base.art, 2).length;
+  const titleLines = wrapText(ctx, scene.title || "Hunq.lofi", base.art, 2).length;
   const playerHeight = playerHeightFor(base, titleLines, scene.settings.showControls);
 
   if (wide) {
@@ -652,7 +658,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, scene: Scene) {
   const titleSize = base.titleSize * scale;
   font(ctx, family, 650, titleSize, base.titleTracking * scale);
   ctx.fillStyle = colors.title;
-  const titleLines = wrapText(ctx, scene.title || "Một khoảng lặng", art, 2);
+  const titleLines = wrapText(ctx, scene.title || "Hunq.lofi", art, 2);
   titleLines.forEach((line, i) => ctx.fillText(line, artX, titleY + i * titleSize * base.titleLine));
 
   const artistY = titleY + titleLines.length * titleSize * base.titleLine + base.artistTop * scale;

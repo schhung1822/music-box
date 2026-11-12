@@ -50,6 +50,20 @@ Ghi chú:
 - Cuộn chỉ tác động vùng lời, không kéo cả trang. ResizeObserver căn lại câu khi đổi kích thước, ngắt dòng hoặc tải phông chữ. Tôn trọng tùy chọn giảm chuyển động.
 - Toàn bộ nhãn, hướng dẫn, lỗi, mô tả truy cập, metadata và trang 404 bằng tiếng Việt. Tên định dạng tệp và thương hiệu YouTube được giữ nguyên.
 
+## Giao diện thẻ nhạc (`/card`)
+
+Một giao diện thứ hai nằm ở trang riêng http://localhost:3000/card (bản Windows: cùng đường dẫn `/card`), dùng chung bộ phát, lời, thiết lập và bộ ghi hình với trang gốc. Có thể đổi qua lại ở *Thiết lập → Hiển thị → Giao diện*; mỗi trang là một lần tải riêng nên các tệp đã chọn phải chọn lại.
+
+- Nền trang là ảnh trong `public/background/` (mặc định `bg1.jpg`), làm mờ nhẹ và phủ lớp tối. Đổi ảnh nền, ảnh mặc định của khung vuông (`thumbanail.jpg`), độ mờ và độ tối ở đầu/cuối `utils/cardLayout.ts` (độ mờ và độ tối của thẻ ở `app/globals.css`, mục `.card-backdrop` và `.card-player`).
+- Thẻ kính mờ kiểu bộ điều khiển nhạc của iOS: khung vuông video/ảnh bìa (chưa chọn gì thì hiện ảnh thumbnail mặc định), tên bài và nghệ sĩ, thanh thời gian (còn lại kiểu `-4:52`), rồi một hàng nút giống giao diện mặc định: thiết lập ở trái, lùi 10 giây / phát / tiến 10 giây ở giữa, tắt/bật âm thanh ở phải.
+- Lời hát chạy từ dưới lên và chỉ hiện câu đang hát cùng câu kế tiếp; câu cũ trôi lên rồi tan đi. Câu dài hơn ba dòng tự thu nhỏ chữ để hiện trọn (`utils/lyricFit.ts`, giao diện và bản ghi dùng chung). Ba hiệu ứng chuyển lời vẫn dùng được.
+- Chuyển câu chạy bằng lò xo giảm chấn tới hạn thay cho đường cong cố định (`utils/cardMotion.ts`, giao diện và bản ghi dùng chung): bắt đầu êm, đổi câu giữa chừng thì giữ nguyên vận tốc, câu trước càng cao thì trượt càng chậm (tối đa 1,5 lần), và đúng theo thời gian thật nên khung hình bị trễ chỉ làm bước nhảy lớn hơn chứ không làm chuyển động khựng. Trên giao diện cột lời trượt bằng `transform`, không dùng `scrollTop`.
+- Bản ghi vẽ một lần lớp tĩnh (ảnh nền mờ, kính, bóng đổ, tên bài, tên nguồn) vào canvas phụ rồi chép lại mỗi khung; riêng bóng đổ làm mờ đã tốn cỡ 18 ms mỗi khung khi không có GPU. Mỗi khung chỉ vẽ lại video, thanh tiến trình và lời hát.
+- **Bản ghi không có nút điều khiển** cho gọn: chỉ còn ảnh, tên bài, thanh thời gian và lời. Giao diện này **chỉ ghi khung dọc 9:16, cố định 1080×1920** (không tăng độ phân giải theo video nguồn) với tốc độ bit khoảng 8 Mbps, nên tệp nhẹ (khoảng 60 MB mỗi phút); chỉnh ở `cardVideoBitsPerSecond` trong `utils/recordingQuality.ts`. Thẻ phóng gần kín bề ngang (khoảng 88%) và nằm giữa khung, giống giao diện khi mở trên điện thoại. Chừa mép trên/dưới/hai bên ở `safe` trong `utils/cardLayout.ts` (tăng `bottom` nếu muốn đẩy lời lên cao, tránh phần mô tả của TikTok ở đáy).
+- Cuối thẻ có dòng tên nguồn **@Hunq.lofi** kiểu sans đậm nghiêng (Geist 700 nghiêng), có cả trong bản ghi. Đổi tên ở `cardCredit` trong `utils/cardLayout.ts`.
+- Hộp thiết lập của trang này dùng bảng màu xám kính và trắng (khối `.card-dialog` cuối `app/globals.css`) thay cho xanh rêu của trang gốc.
+- Mã: `components/CardPlayer.tsx` (giao diện), `utils/renderCard.ts` (bản vẽ canvas của bản ghi), `utils/cardLayout.ts` (số đo dùng chung cho cả hai, để chữ xuống dòng giống hệt nhau). Sửa kích thước thẻ thì chỉ sửa `cardLayout.ts`.
+
 ## Thiết lập
 
 Nút **Thiết lập** mở hộp thoại native có khóa tiêu điểm và hỗ trợ đóng bằng Esc hoặc nhấn ngoài hộp thoại. Các thiết lập không chiếm chỗ trong bố cục chính; đóng hộp thoại hoặc đổi mục không xóa nội dung đã nhập.

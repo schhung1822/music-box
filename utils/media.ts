@@ -5,6 +5,12 @@ export function formatTime(seconds: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/** Thời gian còn lại kiểu trình phát iOS: "-4:52". Chưa biết tổng thời lượng thì để trống. */
+export function formatRemaining(current: number, duration: number) {
+  if (!Number.isFinite(duration) || duration <= 0) return "--:--";
+  return `-${formatTime(Math.max(0, duration - (Number.isFinite(current) ? current : 0)))}`;
+}
+
 // Nhận mọi đuôi tệp trình duyệt có thể mở. Tệp không giải mã được sẽ báo lỗi lúc phát,
 // nên danh sách này chỉ cần chặn nhầm ô chứ không chặn theo khả năng giải mã.
 const extensions: Record<MediaKind, RegExp> = {

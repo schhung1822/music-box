@@ -1,6 +1,6 @@
 {
   "name": "music-lyric",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Khoảng lặng — trình phát nhạc, lời hát đồng bộ và ghi video. Bản chạy trên Windows.",
   "main": "desktop/main.cjs",

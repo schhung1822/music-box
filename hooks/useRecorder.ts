@@ -2,14 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { renderScene, type Scene } from "../utils/renderScene";
+import { renderCardScene } from "../utils/renderCard";
 import { containerOf, createFramePacer, describeCodecs, getRecordingQuality, pickRecordingFormat } from "../utils/recordingQuality";
 import { isDesktopApp } from "../utils/desktop";
 import type { VideoFormat } from "../types/studio";
 
-type StartOptions = Omit<Scene, "currentTime" | "duration" | "reducedMotion" | "backdrop"> & {
+type StartOptions = Omit<Scene, "currentTime" | "duration" | "reducedMotion" | "backdrop" | "cardBackdrop" | "placeholder"> & {
   element: HTMLMediaElement;
   /** Trả về canvas của nền động đang chạy; hỏi lại mỗi khung vì nền có thể dựng lại giữa chừng. */
   getBackdrop?: () => HTMLCanvasElement | null;
+  /** Trả về ảnh nền của thẻ nhạc (chỉ dùng khi `variant` là "card"). */
+  getCardBackdrop?: () => HTMLImageElement | null;
+  /** Trả về ảnh mặc định của khung vuông (chỉ dùng khi `variant` là "card"). */
+  getPlaceholder?: () => HTMLImageElement | null;
   play: () => Promise<boolean>;
   pause: () => void;
   onComplete?: () => void;
@@ -132,7 +137,7 @@ export function useRecorder() {
       if (options.settings.visualMode === "video" && options.video) await waitForVideo(options.video);
       if (generation.current.value !== request) throw new DOMException("Đã hủy", "AbortError");
       const canvas = document.createElement("canvas");
-      const { width, height, frameRate, videoBitsPerSecond, audioBitsPerSecond } = getRecordingQuality(options.settings, options.video);
+      const { width, height, frameRate, videoBitsPerSecond, audioBitsPerSecond } = getRecordingQuality(options.settings, options.video, options.variant);
       canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d", { alpha: false });
       if (!ctx) throw new Error("Không tạo được khung vẽ. Hãy thử lại.");
@@ -144,7 +149,8 @@ export function useRecorder() {
       await document.fonts?.ready;
       if (generation.current.value !== request) throw new DOMException("Đã hủy", "AbortError");
       const withBackdrop = options.settings.backdropInVideo && options.getBackdrop;
-      const draw = (animationTime = performance.now()) => renderScene(ctx, { ...options, fontFamily, animationTime, backdrop: withBackdrop ? options.getBackdrop?.() : null, currentTime: options.element.currentTime, duration: Number.isFinite(options.element.duration) ? options.element.duration : 0, reducedMotion });
+      const render = options.variant === "card" ? renderCardScene : renderScene;
+      const draw = (animationTime = performance.now()) => render(ctx, { ...options, fontFamily, animationTime, backdrop: withBackdrop ? options.getBackdrop?.() : null, cardBackdrop: options.getCardBackdrop?.() ?? null, placeholder: options.getPlaceholder?.() ?? null, currentTime: options.element.currentTime, duration: Number.isFinite(options.element.duration) ? options.element.duration : 0, reducedMotion });
       draw();
       const videoStream = canvas.captureStream(frameRate);
       stream.current = new MediaStream([...videoStream.getVideoTracks(), ...audio.destination.stream.getAudioTracks().map(track => track.clone())]);

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-type IconName = "music" | "headphones" | "arrow" | "help" | "lock" | "video" | "image" | "upload" | "play" | "volume" | "rewind" | "forward" | "lyrics" | "edit" | "sync" | "download" | "close" | "check" | "link" | "sliders" | "expand" | "pause" | "muted" | "disc" | "record" | "stop" | "search" | "backdrop" | "flame" | "waves" | "droplet" | "minus" | "plus" | "up" | "down" | "left" | "right" | "center" | "sweep" | "sparkle";
+type IconName = "music" | "headphones" | "arrow" | "help" | "lock" | "video" | "image" | "upload" | "play" | "volume" | "rewind" | "forward" | "lyrics" | "edit" | "sync" | "download" | "close" | "check" | "link" | "sliders" | "expand" | "pause" | "muted" | "disc" | "record" | "stop" | "search" | "backdrop" | "flame" | "waves" | "droplet" | "minus" | "plus" | "up" | "down" | "left" | "right" | "center" | "sweep" | "sparkle" | "skipBack" | "skipForward" | "volumeLow";
 
 const paths: Record<IconName, ReactNode> = {
   pause: <><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /></>,
@@ -41,6 +41,10 @@ const paths: Record<IconName, ReactNode> = {
   center: <><circle cx="12" cy="12" r="3" /><path d="M12 3v3m0 12v3M3 12h3m12 0h3" /></>,
   sweep: <><path d="M4 8h16" opacity=".35" /><path d="M4 8h9" strokeWidth="2.6" /><path d="M4 16h11" opacity=".35" /></>,
   sparkle: <path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8ZM19 17l.7 1.8L21.5 19.5l-1.8.7L19 22l-.7-1.8-1.8-.7 1.8-.7Z" />,
+  // Bộ nút của thẻ nhạc: hai tam giác đặc như trình phát iOS, và loa nhỏ cho đầu thanh âm lượng.
+  skipBack: <path d="M11 6v12l-9-6Zm10 0v12l-9-6Z" fill="currentColor" strokeWidth="1.2" />,
+  skipForward: <path d="M13 6v12l9-6ZM3 6v12l9-6Z" fill="currentColor" strokeWidth="1.2" />,
+  volumeLow: <path d="m11 4-6 5H2v6h3l6 5V4Zm4 4a6 6 0 0 1 0 8" />,
   plus: <path d="M12 5v14M5 12h14" />,
   sliders: <><path d="M4 7h5m4 0h7M4 17h9m4 0h3" /><circle cx="11" cy="7" r="2" /><circle cx="15" cy="17" r="2" /></>,
 };
